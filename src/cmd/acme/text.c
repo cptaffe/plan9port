@@ -816,6 +816,14 @@ texttype(Text *t, Rune r)
 		textshow(t, t->q0, t->q1, 1);
 		t->iq1 = t->q1;
 		return;
+	case Kdel: /* delete */
+		if(t->q1 > t->q0){
+			if(t->ncache != 0)
+				error("text.type");
+			cut(t, t, nil, FALSE, TRUE, nil, 0);
+			t->eq0 = ~0;
+		}
+		return;
 	}
 	if(t->q1 > t->q0){
 		if(t->ncache != 0)
@@ -833,7 +841,7 @@ texttype(Text *t, Rune r)
 			return;
 		nr = runestrlen(rp);
 		break;	/* fall through to normal insertion case */
-	case 0x1B:
+	case 0x1B: /* Esc */
 		if(t->eq0 != ~0) {
 			if(t->eq0 <= t->q0)
 				textsetselect(t, t->eq0, t->q0);
