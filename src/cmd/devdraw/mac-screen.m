@@ -1013,6 +1013,7 @@ keycvt(uint code)
 	case NSDownArrowFunctionKey: return Kdown;
 	case NSLeftArrowFunctionKey: return Kleft;
 	case NSRightArrowFunctionKey: return Kright;
+	case NSHelpFunctionKey: return Kins; /* Insert is mapped to Help on external keyboards */
 	case NSInsertFunctionKey: return Kins;
 	case NSDeleteFunctionKey: return Kdel;
 	case NSHomeFunctionKey: return Khome;
@@ -1079,7 +1080,6 @@ keycvt(uint code)
 	case NSUndoFunctionKey:
 	case NSRedoFunctionKey:
 	case NSFindFunctionKey:
-	case NSHelpFunctionKey:
 	case NSModeSwitchFunctionKey: return 0;
 	default: return code;
 	}
