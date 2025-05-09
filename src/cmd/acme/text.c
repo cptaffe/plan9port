@@ -540,7 +540,7 @@ textbswidth(Text *t, Rune c)
 	int skipping;
 
 	/* there is known to be at least one character to erase */
-	if(c == 0x08)	/* ^H: erase character */
+	if(c == 0x08 || c == Kdel)	/* ^H: erase character */
 		return 1;
 	q = t->q0;
 	skipping = TRUE;
@@ -551,7 +551,7 @@ textbswidth(Text *t, Rune c)
 				--q;
 			break;
 		}
-		if(c == 0x17){
+		if(c == 0x17){		/* ^W: erase word */
 			eq = isalnum(r);
 			if(eq && skipping)	/* found one; stop skipping */
 				skipping = FALSE;
@@ -816,14 +816,16 @@ texttype(Text *t, Rune r)
 		textshow(t, t->q0, t->q1, 1);
 		t->iq1 = t->q1;
 		return;
-	case Kdel: /* delete */
+	case Kdel:
+	case 0x08:	/* ^H: erase character */
+		/* if there is a selection, delete it */
 		if(t->q1 > t->q0){
 			if(t->ncache != 0)
 				error("text.type");
 			cut(t, t, nil, FALSE, TRUE, nil, 0);
 			t->eq0 = ~0;
+			return;
 		}
-		return;
 	}
 	if(t->q1 > t->q0){
 		if(t->ncache != 0)
@@ -852,6 +854,7 @@ texttype(Text *t, Rune r)
 			typecommit(t);
 		t->iq1 = t->q0;
 		return;
+	case Kdel:
 	case 0x08:	/* ^H: erase character */
 	case 0x15:	/* ^U: erase line */
 	case 0x17:	/* ^W: erase word */
