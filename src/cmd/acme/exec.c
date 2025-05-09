@@ -258,6 +258,56 @@ execute(Text *t, uint aq0, uint aq1, int external, Text *argt)
 	run(t->w, b, dir.r, dir.nr, TRUE, aa, a, FALSE);
 }
 
+void
+executerunestr(Text *t, Rune *r, int external)
+{
+	Rune *s;
+	char *b;
+	Exectab *e;
+	int c, nr, n, f;
+	Runestr dir;
+
+	nr = runestrlen(r);
+	e = lookup(r, nr);
+	if(!external && t->w!=nil && t->w->nopen[QWevent]>0){
+		f = 0;
+		if(e)
+			f |= 1;
+		/* TODO: add support for arg */
+		c = 'x';
+		if(t->what == Body)
+			c = 'X';
+		if(nr <= EVENTSIZE)
+			winevent(t->w, "%c%d %d %d %d %.*S\n", c, 0, 0, f, nr, nr, r);
+		else
+			winevent(t->w, "%c%d %d %d 0 \n", c, 0, 0, f);
+		return;
+	}
+	if(e){
+		if(e->mark && seltext!=nil)
+		if(seltext->what == Body){
+			seq++;
+			filemark(seltext->w->body.file);
+		}
+		s = skipbl(r, nr, &n);
+		s = findbl(s, n, &n);
+		s = skipbl(s, n, &n);
+		(*e->fn)(t, seltext, nil, e->flag1, e->flag2, s, n);
+		return;
+	}
+
+	b = runetobyte(r, nr);
+	dir = dirname(t, nil, 0);
+	if(dir.nr==1 && dir.r[0]=='.'){	/* sigh */
+		free(dir.r);
+		dir.r = nil;
+		dir.nr = 0;
+	}
+	if(t->w)
+		incref(&t->w->ref);
+	run(t->w, b, dir.r, dir.nr, TRUE, nil, nil, FALSE);
+}
+
 char*
 printarg(Text *argt, uint q0, uint q1)
 {

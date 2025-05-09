@@ -19,7 +19,10 @@ Font*	getfont(int, int, char*);
 char*	getarg(Text*, int, int, Rune**, int*);
 char*	getbytearg(Text*, int, int, char**);
 void	new(Text*, Text*, Text*, int, int, Rune*, int);
+void	newcol(Text*, Text*, Text*, int, int, Rune*, int);
 void	undo(Text*, Text*, Text*, int, int, Rune*, int);
+void	del(Text*, Text*, Text*, int, int, Rune*, int);
+void	delcol(Text*, Text*, Text*, int, int, Rune*, int);
 void	scrsleep(uint);
 void	savemouse(Window*);
 int	restoremouse(Window*);
@@ -57,12 +60,14 @@ void	cut(Text*, Text*, Text*, int, int, Rune*, int);
 void	paste(Text*, Text*, Text*, int, int, Rune*, int);
 void	get(Text*, Text*, Text*, int, int, Rune*, int);
 void	put(Text*, Text*, Text*, int, int, Rune*, int);
+void	putall(Text*, Text*, Text*, int, int, Rune*, int);
 void	putfile(File*, int, int, Rune*, int);
 void	fontx(Text*, Text*, Text*, int, int, Rune*, int);
 #undef isalnum
 #define isalnum acmeisalnum
 int	isalnum(Rune);
 void	execute(Text*, uint, uint, int, Text*);
+void	executerunestr(Text*, Rune*, int);
 int	search(Text*, Rune*, uint, int);
 void	look3(Text*, uint, uint, int, int);
 void	editcmd(Text*, Rune*, uint);

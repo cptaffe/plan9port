@@ -445,6 +445,38 @@ plumbproc(void *v)
 }
 */
 
+/* TODO: share these with exec.c */
+static Rune LDel[] = { 'D', 'e', 'l', 0 };
+static Rune LDelcol[] = { 'D', 'e', 'l', 'c', 'o', 'l', 0 };
+static Rune LLook[] = { 'L', 'o', 'o', 'k', 0 };
+static Rune LNew[] = { 'N', 'e', 'w', 0 };
+static Rune LNewcol[] = { 'N', 'e', 'w', 'c', 'o', 'l', 0 };
+static Rune LPut[] = { 'P', 'u', 't', 0 };
+static Rune LPutall[] = { 'P', 'u', 't', 'a', 'l', 'l', 0 };
+
+/* Custom commands */
+static Rune LSpell[] = { 'S', 'p', 'e', 'l', 'l', 0 };
+
+typedef struct Keytab Keytab;
+struct Keytab
+{
+	Rune	key;
+	Rune *cmd;
+};
+
+/* %X to command */
+Keytab keytab[] = {
+	{Kcmd+'s', LPut},	/* %S: Put */
+	{Kcmd+'S', LPutall},	/* %-shift-S: Putall */
+	{Kcmd+'f', LLook},	/* %F: Look */
+	{Kcmd+'w', LDel},	/* %W: Del */
+	{Kcmd+'W', LDelcol},	/* %-shift-W: Delcol */
+	{Kcmd+'n', LNew},	/* %N: New */
+	{Kcmd+'N', LNewcol},	/* %-shift-N: Newcol */
+	{Kcmd+';', LSpell},	/* %;: Spell */
+	{0, nil}
+};
+
 void
 keyboardthread(void *v)
 {
@@ -453,6 +485,8 @@ keyboardthread(void *v)
 	Text *t;
 	enum { KTimer, KKey, NKALT };
 	static Alt alts[NKALT+1];
+	Keytab *k;
+	Window *w;
 
 	USED(v);
 	alts[KTimer].c = nil;
@@ -482,6 +516,31 @@ keyboardthread(void *v)
 			break;
 		case KKey:
 		casekeyboard:
+			/* If key is mapped, execute command. */
+			for(k=keytab; k->key; k++)
+				if(k->key == r)
+					break;
+			if (k->key) {
+				qlock(&row.lk);
+				t = rowwhich(&row, mouse->xy);
+				/* hotkeys over empty white space have no associated text */
+				if (t != nil) {
+					w = t->w;
+					if (w)
+						winlock(w, 'K');
+					if (w)
+						wincommit(w, t);
+					else
+						textcommit(t, TRUE);
+					executerunestr(t, k->cmd, FALSE);
+					if (w)
+						winunlock(w);
+				}
+				qunlock(&row.lk);
+				flushimage(display, 1);
+				continue;
+			}
+
 			typetext = rowtype(&row, r, mouse->xy);
 			t = typetext;
 			if(t!=nil && t->col!=nil && !(r==Kdown || r==Kleft || r==Kright))	/* scrolling doesn't change activecol */
