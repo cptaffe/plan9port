@@ -456,6 +456,9 @@ static Rune LPutall[] = { 'P', 'u', 't', 'a', 'l', 'l', 0 };
 
 /* Custom commands */
 static Rune LSpell[] = { 'S', 'p', 'e', 'l', 'l', 0 };
+static Rune Lwin[] = { 'w', 'i', 'n', 0 };
+static Rune LLdef[] = { 'L', 'd', 'e', 'f', 0 };
+static Rune LLrefs[] = { 'L', 'r', 'e', 'f', 's', 0 };
 
 typedef struct Keytab Keytab;
 struct Keytab
@@ -468,12 +471,16 @@ struct Keytab
 Keytab keytab[] = {
 	{Kcmd+'s', LPut},	/* %S: Put */
 	{Kcmd+'S', LPutall},	/* %-shift-S: Putall */
-	{Kcmd+'f', LLook},	/* %F: Look */
+	/* %F: fullscreen */
+	{Kcmd+'F', LLook},	/* %-shift-F: Look */
 	{Kcmd+'w', LDel},	/* %W: Del */
 	{Kcmd+'W', LDelcol},	/* %-shift-W: Delcol */
 	{Kcmd+'n', LNew},	/* %N: New */
 	{Kcmd+'N', LNewcol},	/* %-shift-N: Newcol */
 	{Kcmd+';', LSpell},	/* %;: Spell */
+	{Kcmd+'t', Lwin},	/* %`: win */
+	{Kcmd+'b', LLdef},	/* %B: Ldef */
+	{Kcmd+'B', LLrefs},	/* %-shift-B: Lrefs */
 	{0, nil}
 };
 
