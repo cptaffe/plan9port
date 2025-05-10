@@ -772,6 +772,10 @@ texttype(Text *t, Rune r)
 	 	typecommit(t);
 		undo(t, nil, nil, FALSE, 0, nil, 0);
 		return;
+	case Kcmd+'a':	/* %A: select all */
+		typecommit(t);
+		textshow(t, 0, t->file->b.nc, TRUE);
+		return;
 
 	Tagdown:
 		/* expand tag to show all text */
