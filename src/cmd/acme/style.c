@@ -404,23 +404,22 @@ winsetstyle(Window *w, ulong start, ulong *newseg, int nnewseg)
  *
  * Format (p points past "style ", e is one-past-end of the message):
  *
- *   <index>                          clear entire document (style index ignored,
- *                                    treated as style 0 for entire doc)
- *   <index> <length>                 apply style from character 0 for <length> chars
- *   <index> <start> <length>         one segment
- *   <index> <start> <length> [<index> <length> ...]  multiple segments
+ *   <index>                                            clear entire document
+ *   <index> <start> <length>                           one segment
+ *   <index> <start> <length> [<index> <start> <length> ...]  multiple segments
+ *
+ * Every entry carries its own absolute start position, so non-contiguous
+ * ranges need no gap-filling.  winframesync is called once at the end.
  *
  * Returns an error string, or nil on success.
  */
 char*
 ctlstyleparse(Window *w, char *p, char *e)
 {
-	ulong nums[512];	/* up to 256 {index,length} pairs */
-	int n, nnums;
+	ulong nums[768];	/* up to 256 {index,start,length} triples */
+	int n, nnums, i;
 	char *ep;
-	ulong start;
-	ulong *newseg;
-	int nnewseg;
+	ulong seg[2];
 
 	/* collect all numbers from the remainder of the line */
 	nnums = 0;
@@ -443,60 +442,53 @@ ctlstyleparse(Window *w, char *p, char *e)
 	n = nnums;
 
 	if(n == 1){
-		/* "style <index>" — apply to entire document */
-		if(nums[0] == 0){
-			winsetstyle(w, 0, nil, 0);	/* clear */
-		} else {
-			ulong nc = w->body.file->b.nc;
-			ulong seg[2];
-			seg[0] = nums[0];
-			seg[1] = nc;
-			winsetstyle(w, 0, seg, 1);
-		}
-		winframesync(w);
-		return nil;
-	}
-
-	if(n == 2){
 		/*
-		 * "style <index> <length>" — apply from position 0
-		 * (special short form for clearing or styling from the top).
+		 * "style 0" — clear entire document.
+		 * Only redraw if the frame is currently showing styled content.
 		 */
-		start = 0;
-		ulong seg[2];
-		seg[0] = nums[0];
-		seg[1] = nums[1];
-		winsetstyle(w, start, seg, 1);
-		winframesync(w);
+		int had = w->body.fr.nstyles > 0;
+		winsetstyle(w, 0, nil, 0);
+		if(had)
+			winframesync(w);
 		return nil;
 	}
 
 	/*
-	 * "style <index> <start> <length> [<index> <length> ...]"
-	 *
-	 * The first 3 numbers are: first_index, start, first_length.
-	 * Subsequent pairs are: index, length (continuing from previous end).
+	 * "style <index> <start> <length> [<index> <start> <length> ...]"
+	 * Every entry is a triple; total number count must be a multiple of 3.
 	 */
-	if((n - 3) % 2 != 0)
-		return "bad style syntax: odd number of continuation fields";
+	if(n % 3 != 0)
+		return "bad style syntax: arguments must be triples of index start length";
 
-	start = nums[1];
-	nnewseg = 1 + (n - 3) / 2;
-	newseg  = emalloc(2 * nnewseg * sizeof(ulong));
-
-	/* first segment */
-	newseg[0] = nums[0];	/* index */
-	newseg[1] = nums[2];	/* length */
-
-	/* subsequent segments */
-	int i;
-	for(i = 1; i < nnewseg; i++){
-		newseg[i*2]     = nums[3 + (i-1)*2];
-		newseg[i*2 + 1] = nums[3 + (i-1)*2 + 1];
+	/*
+	 * Apply each triple independently via winsetstyle so that
+	 * non-contiguous ranges work without gap-filling.
+	 * winframesync is deferred until all segments are installed.
+	 */
+	for(i = 0; i < n; i += 3){
+		seg[0] = nums[i];	/* index */
+		seg[1] = nums[i+2];	/* length */
+		winsetstyle(w, nums[i+1], seg, 1);
 	}
 
-	winsetstyle(w, start, newseg, nnewseg);
-	free(newseg);
-	winframesync(w);
+	/*
+	 * Only redraw if at least one of the new segments falls within the
+	 * currently visible frame window [t->org, t->org + f->nchars).
+	 * Segments that are entirely above or below the scroll position have
+	 * no effect on the display and need no repaint.
+	 */
+	{
+		Text *t = &w->body;
+		ulong org = t->org;
+		ulong fend = org + t->fr.nchars;
+		for(i = 0; i < n; i += 3){
+			ulong sstart = nums[i+1];
+			ulong send   = sstart + nums[i+2];
+			if(send > org && sstart < fend){
+				winframesync(w);
+				break;
+			}
+		}
+	}
 	return nil;
 }
