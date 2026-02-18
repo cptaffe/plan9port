@@ -168,8 +168,10 @@ frstyleinsert(Frame *f, ulong p0, ulong n)
 	pos = 0;
 	for(i = 0; i < f->nstyles; i++){
 		segend = pos + f->styles[2*i+1];
-		if(p0 < segend || i == f->nstyles-1){
-			/* p0 falls within or at/beyond this segment — extend it */
+		if(p0 <= segend || i == f->nstyles-1){
+			/* p0 falls within or at the end of this segment — extend it.
+			 * Using <= means the boundary belongs to the left neighbour:
+			 * typing at the end of a styled run continues that style. */
 			f->styles[2*i+1] += n;
 			return;
 		}
