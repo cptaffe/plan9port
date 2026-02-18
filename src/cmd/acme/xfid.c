@@ -820,6 +820,28 @@ out:
 			wincleartag(w);
 			settag = TRUE;
 			m = 8;
+		}else
+		if(strncmp(p, "veil", 4) == 0){	/* stop displaying keyboard input */
+			w->noecho = TRUE;
+			settag = TRUE;
+			m = 4;
+		}else
+		if(strncmp(p, "unveil", 6) == 0){	/* display keyboard input */
+			w->noecho = FALSE;
+			m = 6;
+		}else
+		if(strncmp(p, "style ", 6) == 0){	/* set per-character styles */
+			char *pp, *eq;
+			pp = p + 6;
+			eq = memchr(pp, '\n', e - pp);
+			if(eq == nil)
+				eq = e;
+			err = ctlstyleparse(w, pp, eq);
+			if(err != nil)
+				break;
+			m = (eq - p);
+			if(eq < e && *eq == '\n')
+				m++;
 		}else{
 			err = Ebadctl;
 			break;

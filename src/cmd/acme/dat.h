@@ -1,3 +1,14 @@
+/*
+ * Acmestyle — one entry in the global style table loaded from the styles file.
+ * Index 0 is always the "default" entry and seeds the frame's cols[].
+ */
+typedef struct Acmestyle Acmestyle;
+struct Acmestyle
+{
+	char	*name;		/* e.g. "comment", "keyword" */
+	Image	*cols[NCOL];	/* the five colour images for this style */
+};
+
 enum
 {
 	Qdir,
@@ -247,6 +258,7 @@ struct Window
 	Range	limit;
 	uchar	nopen[QMAX];
 	uchar	nomark;
+	uchar	noecho;
 	Range	wrselrange;
 	int		rdselfd;
 	Column	*col;
@@ -274,6 +286,9 @@ struct Window
 	int		taglines;
 	Rectangle	tagtop;
 	QLock	editoutlk;
+	/* per-window body styling (run-length encoded character styles) */
+	ulong	*styles;	/* 2*nstyles ulongs: {style_index, length, ...} */
+	int		nstyles;
 };
 
 void	wininit(Window*, Window*, Rectangle);
@@ -549,6 +564,8 @@ char			*acmeshell;
 char			*fontnames[2];
 Image		*tagcols[NCOL];
 Image		*textcols[NCOL];
+Acmestyle	*acmestyles;		/* global style table (index 0 = default) */
+int			nacmestyles;
 extern char		wdir[]; /* must use extern because no dimension given */
 int			editing;
 int			erroutfd;

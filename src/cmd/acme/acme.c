@@ -61,7 +61,7 @@ void
 threadmain(int argc, char *argv[])
 {
 	int i;
-	char *p, *loadfile;
+	char *p, *loadfile, *stylefile;
 	Column *c;
 	int ncol;
 	Display *d;
@@ -70,7 +70,8 @@ threadmain(int argc, char *argv[])
 
 	ncol = -1;
 
-	loadfile = nil;
+	loadfile  = nil;
+	stylefile = nil;
 	ARGBEGIN{
 	case 'D':
 		{extern int _threaddebuglevel;
@@ -114,6 +115,11 @@ threadmain(int argc, char *argv[])
 	case 'r':
 		swapscrollbuttons = TRUE;
 		break;
+	case 's':
+		stylefile = ARGF();
+		if(stylefile == nil)
+			goto Usage;
+		break;
 	case 'W':
 		winsize = ARGF();
 		if(winsize == nil)
@@ -121,7 +127,7 @@ threadmain(int argc, char *argv[])
 		break;
 	default:
 	Usage:
-		fprint(2, "usage: acme -a -c ncol -f fontname -F fixedwidthfontname -l loadfile -W winsize\n");
+		fprint(2, "usage: acme -a -c ncol -f fontname -F fixedwidthfontname -l loadfile -s stylefile -W winsize\n");
 		threadexitsall("usage");
 	}ARGEND
 
@@ -181,6 +187,8 @@ threadmain(int argc, char *argv[])
 	fontcache[0] = &reffont;
 
 	iconinit();
+	if(stylefile != nil)
+		loadstylefile(stylefile);
 	timerinit();
 	rxinit();
 
@@ -459,6 +467,8 @@ static Rune LSpell[] = { 'S', 'p', 'e', 'l', 'l', 0 };
 static Rune Lwin[] = { 'w', 'i', 'n', 0 };
 static Rune LLdef[] = { 'L', 'd', 'e', 'f', 0 };
 static Rune LLrefs[] = { 'L', 'r', 'e', 'f', 's', 0 };
+static Rune LV[] = { 'V', 0 };
+static Rune LSearch[] = { 'S', 'e', 'a', 'r', 'c', 'h', 0};
 
 typedef struct Keytab Keytab;
 struct Keytab
@@ -481,6 +491,8 @@ Keytab keytab[] = {
 	{Kcmd+'t', Lwin},	/* %`: win */
 	{Kcmd+'b', LLdef},	/* %B: Ldef */
 	{Kcmd+'B', LLrefs},	/* %-shift-B: Lrefs */
+	{0x1B, LV}, /* Esc: V */
+	{Kcmd+'p', LSearch}, /* %P: Search */
 	{0, nil}
 };
 

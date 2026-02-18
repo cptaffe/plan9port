@@ -23,6 +23,7 @@ OFILES=\
 	text.$O\
 	time.$O\
 	util.$O\
+	style.$O\
 	wind.$O\
 	xfid.$O\
 

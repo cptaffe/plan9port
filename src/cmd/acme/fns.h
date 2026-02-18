@@ -112,3 +112,9 @@ Range range(int, int);
 #define	runemove(a, b, c)	memmove((a), (b), (c)*sizeof(Rune))
 
 int	ismtpt(char*);
+
+/* style management */
+int		loadstylefile(char*);
+void	winsetstyle(Window*, ulong, ulong*, int);
+void	winframesync(Window*);
+char*	ctlstyleparse(Window*, char*, char*);

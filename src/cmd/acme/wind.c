@@ -329,6 +329,7 @@ winclose(Window *w)
 			free(w->incl[i]);
 		free(w->incl);
 		free(w->events);
+		free(w->styles);
 		free(w);
 	}
 }

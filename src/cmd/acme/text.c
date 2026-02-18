@@ -63,10 +63,23 @@ textredraw(Text *t, Rectangle r, Font *f, Image *b, int odx)
 			textreset(t);
 			textcolumnate(t, t->w->dlp,  t->w->ndl);
 			textshow(t, 0, 0, 1);
+			/*
+			 * The entire directory text was regenerated; any existing
+			 * style byte-offsets refer to a layout that no longer exists.
+			 * Drop them so future redraws and scrolls start clean.
+			 */
+			winsetstyle(t->w, 0, nil, 0);
 		}
 	}else{
 		textfill(t);
 		textsetselect(t, t->q0, t->q1);
+		/*
+		 * Re-apply per-window styles after textfill has drawn the frame
+		 * content with plain colours.  frredraw inside winframesync
+		 * repaints everything with the correct style colours.
+		 */
+		if(t->what == Body && t->w != nil && t->w->nstyles > 0)
+			winframesync(t->w);
 	}
 }
 
@@ -867,6 +880,7 @@ texttype(Text *t, Rune r)
 		filemark(t->file);
 	}
 	/* cut/paste must be done after the seq++/filemark */
+	/* TODO: veil: paste should not insert */
 	switch(r){
 	case Kcmd+'x':	/* %X: cut */
 		typecommit(t);
@@ -888,6 +902,17 @@ texttype(Text *t, Rune r)
 		textshow(t, t->q0, t->q1, 1);
 		t->iq1 = t->q1;
 		return;
+	}
+
+	/* veil: do not insert, send KV event incl. control keys,
+		quirk: esc is sent not interpreted */
+	if (t->w && t->w->noecho && t->what==Body) {
+		typecommit(t);
+		winevent(t->w, "%c%d %d 0 %d %.*S\n", 'V', t->q0, t->q0+nr, nr, nr, rp);
+		return;
+	}
+
+	switch(r) {
 	case Kdel:
 	case 0x08:	/* ^H: erase character */
 		/* if there is a selection, delete it */
@@ -986,6 +1011,7 @@ texttype(Text *t, Rune r)
 		}
 		break; /* fall through to normal code */
 	}
+
 	/* otherwise ordinary character; just insert, typically in caches of all texts */
 	for(i=0; i<t->file->ntext; i++){
 		u = t->file->text[i];
@@ -1243,32 +1269,12 @@ region(int a, int b)
 void
 selrestore(Frame *f, Point pt0, uint p0, uint p1)
 {
-	if(p1<=f->p0 || p0>=f->p1){
-		/* no overlap */
-		frdrawsel0(f, pt0, p0, p1, f->cols[BACK], f->cols[TEXT]);
-		return;
-	}
-	if(p0>=f->p0 && p1<=f->p1){
-		/* entirely inside */
-		frdrawsel0(f, pt0, p0, p1, f->cols[HIGH], f->cols[HTEXT]);
-		return;
-	}
-
-	/* they now are known to overlap */
-
-	/* before selection */
-	if(p0 < f->p0){
-		frdrawsel0(f, pt0, p0, f->p0, f->cols[BACK], f->cols[TEXT]);
-		p0 = f->p0;
-		pt0 = frptofchar(f, p0);
-	}
-	/* after selection */
-	if(p1 > f->p1){
-		frdrawsel0(f, frptofchar(f, f->p1), f->p1, p1, f->cols[BACK], f->cols[TEXT]);
-		p1 = f->p1;
-	}
-	/* inside selection */
-	frdrawsel0(f, pt0, p0, p1, f->cols[HIGH], f->cols[HTEXT]);
+	/*
+	 * Redraw [p0,p1) with the correct colours for the current selection
+	 * (f->p0, f->p1) and per-character styles.  frdrawrange handles both
+	 * dimensions simultaneously, replacing the old manual case analysis.
+	 */
+	frdrawrange(f, pt0, p0, p1);
 }
 
 void
@@ -1729,6 +1735,9 @@ textsetorigin(Text *t, uint org, int exact)
 	textsetselect(t, t->q0, t->q1);
 	if(fixup && t->fr.p1 > t->fr.p0)
 		frdrawsel(&t->fr, frptofchar(&t->fr, t->fr.p1-1), t->fr.p1-1, t->fr.p1, 1);
+	/* re-apply styles: t->org just changed so frame-relative offsets must be recomputed */
+	if(t->what == Body && t->w != nil && t->w->nstyles > 0)
+		winframesync(t->w);
 }
 
 void
