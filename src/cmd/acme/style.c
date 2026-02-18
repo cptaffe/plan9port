@@ -226,6 +226,20 @@ buildframestyles(ulong *wstyles, int nwstyles, ulong org, ulong frnchars,
 		filepos = seg_end;
 	}
 
+	/* Always close the frame with an explicit style-0 segment so that
+	 * f->styles covers the full [0, frnchars) range.
+	 *
+	 * Without this, frstyleinsert's "last-segment" fallback
+	 * (|| i == f->nstyles-1) fires for textfill insertions beyond the
+	 * last styled span and incorrectly extends that span.  The result is
+	 * visible after undo: chars pushed off the frame during each undo
+	 * step trigger textfill, which keeps extending the final styled
+	 * segment until it covers positions the user later types into. */
+	if(frpos < frnchars){
+		res[nres*2]     = 0;
+		res[nres*2 + 1] = frnchars - frpos;
+		nres++;
+	}
 	*out  = res;
 	*nout = nres;
 }
