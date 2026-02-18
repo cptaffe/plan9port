@@ -150,3 +150,71 @@ frstylesync(Frame *f)
 	if(f->nstylecols > 0 && f->stylecols != nil)
 		memmove(f->cols, f->stylecols, NCOL * sizeof(Image*));
 }
+
+/*
+ * frstyleinsert — widen the RLE style run that covers position p0 by n
+ * characters.  Newly inserted characters inherit the style of the character
+ * currently at p0 (i.e. the right neighbour), so typing inside a highlighted
+ * region keeps the highlight.
+ */
+void
+frstyleinsert(Frame *f, ulong p0, ulong n)
+{
+	ulong pos, segend;
+	int i;
+
+	if(f->nstyles == 0 || n == 0)
+		return;
+	pos = 0;
+	for(i = 0; i < f->nstyles; i++){
+		segend = pos + f->styles[2*i+1];
+		if(p0 < segend || i == f->nstyles-1){
+			/* p0 falls within or at/beyond this segment — extend it */
+			f->styles[2*i+1] += n;
+			return;
+		}
+		pos = segend;
+	}
+}
+
+/*
+ * frstyledelete — remove n = p1-p0 characters starting at p0 from the RLE
+ * style array, shrinking or eliminating the affected segments.
+ */
+void
+frstyledelete(Frame *f, ulong p0, ulong p1)
+{
+	ulong pos, del_start, seglen, avail, del, rem;
+	int i;
+
+	if(f->nstyles == 0 || p0 >= p1)
+		return;
+	rem = p1 - p0;
+	pos = 0;
+	/* find the first segment that overlaps [p0, p1) */
+	for(i = 0; i < f->nstyles; i++){
+		if(pos + f->styles[2*i+1] > p0)
+			break;
+		pos += f->styles[2*i+1];
+	}
+	if(i == f->nstyles)
+		return;			/* p0 is beyond all segments */
+	del_start = p0 - pos;		/* offset within segment i where deletion begins */
+	while(i < f->nstyles && rem > 0){
+		seglen = f->styles[2*i+1];
+		avail  = seglen - del_start;
+		del    = rem < avail ? rem : avail;
+		f->styles[2*i+1] -= del;
+		rem      -= del;
+		del_start = 0;		/* subsequent segments delete from offset 0 */
+		if(f->styles[2*i+1] == 0){
+			/* segment is fully consumed — remove it */
+			memmove(&f->styles[2*i], &f->styles[2*(i+1)],
+				2*(f->nstyles-i-1)*sizeof(ulong));
+			f->nstyles--;
+			/* i now points to the next segment; don't increment */
+		} else {
+			i++;
+		}
+	}
+}

@@ -286,6 +286,15 @@ frinsert(Frame *f, Rune *sp, Rune *ep, ulong p0)
 		f->p1 += frame.nchars;
 	if(f->p1 > f->nchars)
 		f->p1 = f->nchars;
+	/*
+	 * Keep the per-character style RLE in sync and repaint the inserted
+	 * region so newly typed characters appear in the surrounding style
+	 * rather than the plain frame background.
+	 */
+	if(f->nstyles > 0){
+		frstyleinsert(f, p0, frame.nchars);
+		frdrawrange(f, frptofchar(f, p0), p0, p0+frame.nchars);
+	}
 	if(f->p0 == f->p1)
 		frtick(f, frptofchar(f, f->p0), 1);
 }

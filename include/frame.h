@@ -73,6 +73,8 @@ void	frclear(Frame*, int);
 void	frredraw(Frame*);
 void	frstylesync(Frame*);
 int	frsetstyles(Frame*, int, Image**, int, ulong*);
+void	frstyleinsert(Frame*, ulong, ulong);
+void	frstyledelete(Frame*, ulong, ulong);
 
 uchar	*_frallocstr(Frame*, unsigned);
 void	_frinsure(Frame*, int, unsigned);
