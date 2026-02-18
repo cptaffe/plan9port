@@ -18,6 +18,10 @@ frinit(Frame *f, Rectangle r, Font *ft, Image *b, Image *cols[NCOL])
 	f->p1 = 0;
 	f->box = 0;
 	f->lastlinefull = 0;
+	f->nstylecols = 0;
+	f->stylecols = nil;
+	f->nstyles = 0;
+	f->styles = nil;
 	if(cols != 0)
 		memmove(f->cols, cols, sizeof f->cols);
 	frsetrects(f, r, b);
@@ -75,6 +79,13 @@ frclear(Frame *f, int freeall)
 		_frdelbox(f, 0, f->nbox-1);
 	if(f->box)
 		free(f->box);
+	/* style arrays are always freed; winframesync re-applies them after reinit */
+	free(f->stylecols);
+	f->stylecols = nil;
+	f->nstylecols = 0;
+	free(f->styles);
+	f->styles = nil;
+	f->nstyles = 0;
 	if(freeall){
 		freeimage(f->tick);
 		freeimage(f->tickback);
@@ -83,4 +94,59 @@ frclear(Frame *f, int freeall)
 	}
 	f->box = 0;
 	f->ticked = 0;
+}
+
+/*
+ * frsetstyles — install a new style table and run-length colour array into a
+ * frame.  The caller owns the memory; Frame keeps a fresh copy.
+ *
+ *   nsc   — number of style colour sets
+ *   sc    — flat array of nsc*NCOL Image* pointers (sc[0..NCOL-1] == cols)
+ *   ns    — number of run-length style segments
+ *   st    — flat array of 2*ns ulongs: {style_index, length, ...}
+ *
+ * Returns 1 on success, 0 on allocation failure.
+ */
+int
+frsetstyles(Frame *f, int nsc, Image **sc, int ns, ulong *st)
+{
+	Image **newsc;
+	ulong  *newst;
+
+	newsc = nil;
+	newst = nil;
+	if(nsc > 0 && sc != nil){
+		newsc = malloc(nsc * NCOL * sizeof(Image*));
+		if(newsc == nil)
+			return 0;
+		memmove(newsc, sc, nsc * NCOL * sizeof(Image*));
+	}
+	if(ns > 0 && st != nil){
+		newst = malloc(2 * ns * sizeof(ulong));
+		if(newst == nil){
+			free(newsc);
+			return 0;
+		}
+		memmove(newst, st, 2 * ns * sizeof(ulong));
+	}
+	free(f->stylecols);
+	free(f->styles);
+	f->stylecols  = newsc;
+	f->nstylecols = nsc;
+	f->styles     = newst;
+	f->nstyles    = ns;
+	/* keep cols[0..NCOL-1] in sync with style 0 */
+	frstylesync(f);
+	return 1;
+}
+
+/*
+ * frstylesync — copy style 0's colours back into f->cols so that all
+ * existing libframe drawing helpers see the correct default palette.
+ */
+void
+frstylesync(Frame *f)
+{
+	if(f->nstylecols > 0 && f->stylecols != nil)
+		memmove(f->cols, f->stylecols, NCOL * sizeof(Image*));
 }

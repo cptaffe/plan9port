@@ -51,6 +51,11 @@ struct Frame
 	int			ticked;	/* flag: is tick onscreen? */
 	int			noredraw;	/* don't draw on the screen */
 	int			tickscale;	/* tick scaling factor */
+	/* optional per-character styling */
+	int		nstylecols;	/* number of entries in stylecols (0 = unstyled) */
+	Image	**stylecols;	/* nstylecols*NCOL image pointers; [0..NCOL-1] mirrors cols */
+	int		nstyles;	/* number of run-length style segments */
+	ulong	*styles;	/* 2*nstyles ulongs: {style_index, length, ...} */
 };
 
 ulong	frcharofpt(Frame*, Point);
@@ -61,10 +66,13 @@ void	frselect(Frame*, Mousectl*);
 void	frselectpaint(Frame*, Point, Point, Image*);
 void	frdrawsel(Frame*, Point, ulong, ulong, int);
 Point	frdrawsel0(Frame*, Point, ulong, ulong, Image*, Image*);
+Point	frdrawrange(Frame*, Point, ulong, ulong);
 void	frinit(Frame*, Rectangle, Font*, Image*, Image**);
 void	frsetrects(Frame*, Rectangle, Image*);
 void	frclear(Frame*, int);
 void	frredraw(Frame*);
+void	frstylesync(Frame*);
+int	frsetstyles(Frame*, int, Image**, int, ulong*);
 
 uchar	*_frallocstr(Frame*, unsigned);
 void	_frinsure(Frame*, int, unsigned);

@@ -30,9 +30,98 @@ nbytes(char *s0, int nr)
 	return s-s0;
 }
 
+/*
+ * stylecols_for — return the NCOL colour set for style index idx.
+ * Falls back to f->cols when the index is out of range.
+ */
+static Image**
+stylecols_for(Frame *f, int idx)
+{
+	if(f->stylecols == nil || idx < 0 || idx >= f->nstylecols)
+		return f->cols;
+	return f->stylecols + idx * NCOL;
+}
+
+/*
+ * styleat — return the style index that covers character position p,
+ * given the frame's run-length encoded styles array.
+ * Also sets *segend to the first position NOT covered by this style run.
+ */
+static int
+styleat(Frame *f, ulong p, ulong *segend)
+{
+	int i;
+	ulong pos, len;
+
+	pos = 0;
+	for(i = 0; i < f->nstyles; i++){
+		len = f->styles[i*2 + 1];
+		if(p < pos + len){
+			*segend = pos + len;
+			return (int)f->styles[i*2];
+		}
+		pos += len;
+	}
+	/* past all explicit style runs → default style 0 */
+	*segend = f->nchars;
+	return 0;
+}
+
+/*
+ * frdrawrange — draw characters [p0,p1) honouring both per-character styles
+ * (f->styles / f->stylecols) and the current selection (f->p0, f->p1).
+ * pt must be the screen point for p0.  Returns the screen point after p1.
+ *
+ * This is the single authoritative drawing primitive; frdrawsel and frredraw
+ * are both implemented on top of it.
+ */
+Point
+frdrawrange(Frame *f, Point pt, ulong p0, ulong p1)
+{
+	ulong p, segend, next;
+	Image **sc;
+	Image *back, *text;
+
+	p = p0;
+	while(p < p1){
+		/* find the end of the current style run */
+		if(f->nstyles > 0 && f->styles != nil){
+			int sidx = styleat(f, p, &segend);
+			if(segend > p1)
+				segend = p1;
+			sc = stylecols_for(f, sidx);
+		} else {
+			segend = p1;
+			sc = f->cols;
+		}
+
+		/* split further at selection boundaries */
+		while(p < segend){
+			next = segend;
+			if(f->p0 > p && f->p0 < next)
+				next = f->p0;
+			if(f->p1 > p && f->p1 < next)
+				next = f->p1;
+
+			if(p >= f->p0 && p < f->p1){
+				back = sc[HIGH];
+				text = sc[HTEXT];
+			} else {
+				back = sc[BACK];
+				text = sc[TEXT];
+			}
+			pt = frdrawsel0(f, pt, p, next, back, text);
+			p = next;
+		}
+	}
+	return pt;
+}
+
 void
 frdrawsel(Frame *f, Point pt, ulong p0, ulong p1, int issel)
 {
+	ulong p, segend;
+	Image **sc;
 	Image *back, *text;
 
 	if(f->ticked)
@@ -43,15 +132,36 @@ frdrawsel(Frame *f, Point pt, ulong p0, ulong p1, int issel)
 		return;
 	}
 
-	if(issel){
-		back = f->cols[HIGH];
-		text = f->cols[HTEXT];
-	}else{
-		back = f->cols[BACK];
-		text = f->cols[TEXT];
+	if(f->nstyles == 0 || f->styles == nil){
+		/* fast path: no per-character styles */
+		if(issel){
+			back = f->cols[HIGH];
+			text = f->cols[HTEXT];
+		} else {
+			back = f->cols[BACK];
+			text = f->cols[TEXT];
+		}
+		frdrawsel0(f, pt, p0, p1, back, text);
+		return;
 	}
 
-	frdrawsel0(f, pt, p0, p1, back, text);
+	/* style-aware: iterate style segments, apply issel uniformly within each */
+	p = p0;
+	while(p < p1){
+		int sidx = styleat(f, p, &segend);
+		if(segend > p1)
+			segend = p1;
+		sc = stylecols_for(f, sidx);
+		if(issel){
+			back = sc[HIGH];
+			text = sc[HTEXT];
+		} else {
+			back = sc[BACK];
+			text = sc[TEXT];
+		}
+		pt = frdrawsel0(f, pt, p, segend, back, text);
+		p = segend;
+	}
 }
 
 Point
@@ -124,20 +234,17 @@ frredraw(Frame *f)
 	int ticked;
 	Point pt;
 
-	if(f->p0 == f->p1){
-		ticked = f->ticked;
-		if(ticked)
-			frtick(f, frptofchar(f, f->p0), 0);
-		frdrawsel0(f, frptofchar(f, 0), 0, f->nchars, f->cols[BACK], f->cols[TEXT]);
-		if(ticked)
-			frtick(f, frptofchar(f, f->p0), 1);
-		return;
-	}
+	ticked = f->ticked;
+	if(ticked)
+		frtick(f, frptofchar(f, f->p0), 0);
 
 	pt = frptofchar(f, 0);
-	pt = frdrawsel0(f, pt, 0, f->p0, f->cols[BACK], f->cols[TEXT]);
-	pt = frdrawsel0(f, pt, f->p0, f->p1, f->cols[HIGH], f->cols[HTEXT]);
-	pt = frdrawsel0(f, pt, f->p1, f->nchars, f->cols[BACK], f->cols[TEXT]);
+	frdrawrange(f, pt, 0, f->nchars);
+
+	if(ticked)
+		frtick(f, frptofchar(f, f->p0), 1);
+	else if(f->p0 == f->p1)
+		frtick(f, frptofchar(f, f->p0), 1);
 }
 
 static void
