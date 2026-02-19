@@ -137,6 +137,7 @@ xfidopen(Xfid *x)
 					winsettag(w);
 				}
 			}
+			x->f->eventx = nil;	/* clear any stale pointer from Fid reuse */
 			/*
 			 * Insert this fid at the head of the event pipeline.
 			 * Start it from where the previous head's read pointer
@@ -309,6 +310,13 @@ xfidclose(Xfid *x)
 				}
 			}
 			x->f->eventnext = nil;
+
+			/* Wake this fid's own blocked reader, if any. */
+			if(x->f->eventx != nil){
+				Xfid *wx = x->f->eventx;
+				x->f->eventx = nil;
+				sendp(wx->c, nil);
+			}
 
 			if(--w->nopen[q] == 0){
 				if(!w->isdir && w->col!=nil){
