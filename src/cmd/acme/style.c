@@ -296,6 +296,100 @@ winframesync(Window *w)
 }
 
 /*
+ * winstyleinsert — keep style layers in sync when n runes are inserted at q0.
+ *
+ * For each layer: widen the segment that covers q0 by n, so that all
+ * absolute offsets after q0 remain correct.  Also updates the composed
+ * per-frame cache (f->styles) so that styleat() returns correct values
+ * immediately after frinsert, before the next full winframesync.
+ *
+ * Call this immediately after frinsert() for body text only.
+ */
+void
+winstyleinsert(Window *w, uint q0, uint n)
+{
+	Text *t;
+	Frame *f;
+	int L, i;
+	ulong pos;
+
+	if(n == 0 || w->nlayers == 0)
+		return;
+
+	/* 1. Shift every file-absolute style layer. */
+	for(L = 0; L < w->nlayers; L++){
+		ulong *seg  = w->stylelayers[L];
+		int    nsegs = w->nstylelayers[L];
+		if(seg == nil)
+			continue;
+		pos = 0;
+		for(i = 0; i < nsegs; i++){
+			/* Widen the first segment whose right edge is >= q0.
+			 * This matches frstyleinsert's "boundary belongs to the
+			 * left neighbour" convention. */
+			if(q0 <= pos + seg[i*2+1]){
+				seg[i*2+1] += n;
+				break;
+			}
+			pos += seg[i*2+1];
+		}
+	}
+
+	/* 2. Update the composed per-frame cache so styleat() is immediately
+	 * correct.  Only valid if frinsert() was called (q0 in visible range). */
+	t = &w->body;
+	f = &t->fr;
+	if(f->nstyles > 0 && (ulong)q0 >= t->org && (ulong)q0 < t->org + (ulong)f->nchars)
+		frstyleinsert(f, (ulong)(q0 - t->org), (ulong)n);
+}
+
+/*
+ * winstyledelete — keep style layers in sync when runes [q0,q1) are removed.
+ *
+ * For each layer: remove/shrink the segments that overlap [q0,q1).  Segments
+ * entirely after q1 are implicitly shifted backwards because their absolute
+ * position is the accumulated sum of all preceding lengths.
+ *
+ * The per-frame cache update (frstyledelete) must be done by the caller
+ * immediately after frdelete(), while the correct frame-relative p0/p1 are
+ * still in scope.  This function only updates Window.stylelayers.
+ */
+void
+winstyledelete(Window *w, uint q0, uint q1)
+{
+	int L, i, new_nsegs;
+	ulong pos, seg_end, overlap;
+	ulong *seg;
+
+	if(q0 >= q1 || w->nlayers == 0)
+		return;
+
+	for(L = 0; L < w->nlayers; L++){
+		seg      = w->stylelayers[L];
+		int nsegs = w->nstylelayers[L];
+		if(seg == nil)
+			continue;
+		pos       = 0;
+		new_nsegs = 0;
+		for(i = 0; i < nsegs; i++){
+			ulong len  = seg[i*2+1];
+			seg_end    = pos + len;
+			/* overlap of this segment with [q0, q1) */
+			ulong ov0  = pos    > (ulong)q0 ? pos    : (ulong)q0;
+			ulong ov1  = seg_end < (ulong)q1 ? seg_end : (ulong)q1;
+			overlap    = ov1 > ov0 ? ov1 - ov0 : 0;
+			if(len - overlap > 0){
+				seg[new_nsegs*2]   = seg[i*2];
+				seg[new_nsegs*2+1] = len - overlap;
+				new_nsegs++;
+			}
+			pos = seg_end;
+		}
+		w->nstylelayers[L] = new_nsegs;
+	}
+}
+
+/*
  * winclearstyle — free style data in every layer of w.
  *
  * Does not call winframesync; the caller is responsible for repainting

@@ -118,4 +118,6 @@ int		loadstylefile(char*);
 void	winsetstyle(Window*, int, ulong, ulong*, int);
 void	winclearstyle(Window*);
 void	winframesync(Window*);
+void	winstyleinsert(Window*, uint, uint);
+void	winstyledelete(Window*, uint, uint);
 char*	ctlstyleparse(Window*, int, char*, char*);
