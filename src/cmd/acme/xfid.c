@@ -119,16 +119,6 @@ xfidopen(Xfid *x)
 			w->nopen[q]++;
 			break;
 		case QWctl:
-			/*
-			 * Assign the next available style layer to this fid.
-			 * The layer persists after the fid is closed so that
-			 * "write style, exit" tools (like Highlight) leave their
-			 * colours in the window.  nlayers grows monotonically up
-			 * to MAXSTYLAYERS; beyond that new opens share the last slot.
-			 */
-			x->f->layer = w->nlayers;
-			if(w->nlayers < MAXSTYLAYERS - 1)
-				w->nlayers++;
 			break;
 		case QWevent:
 			if(w->nopen[q]++ == 0){
@@ -910,7 +900,7 @@ out:
 			eq = memchr(pp, '\n', e - pp);
 			if(eq == nil)
 				eq = e;
-			err = ctlstyleparse(w, x->f->layer, pp, eq);
+			err = ctlstyleparse(w, pp, eq);
 			if(err != nil)
 				break;
 			m = (eq - p);

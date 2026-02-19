@@ -235,8 +235,6 @@ struct WinEvRing {
 	vlong  tail;		/* file offset of next write */
 };
 
-#define MAXSTYLAYERS	16	/* max independent style layers per window */
-
 struct Window {
   QLock lk;
   Ref ref;
@@ -282,17 +280,12 @@ struct Window {
   Rectangle tagtop;
   QLock editoutlk;
   /*
-   * Per-window body styling: MAXSTYLAYERS independent layers.
-   * Each layer is a file-absolute RLE: flat {style_index, length} pairs.
-   * Layer 0 is lowest priority; layer nlayers-1 is highest.
-   * At each character position the highest-numbered layer with a non-zero
-   * style index wins.  Style index 0 is transparent (never overrides a
-   * lower layer).  nlayers grows monotonically as ctl fids are opened;
-   * it never exceeds MAXSTYLAYERS.
+   * Per-window body styling: a single file-absolute RLE layer.
+   * Flat {style_index, length} pairs; composition is done externally
+   * by acme-styles and written via the "style" ctl command.
    */
-  ulong *stylelayers[MAXSTYLAYERS];
-  int    nstylelayers[MAXSTYLAYERS];
-  int    nlayers;
+  ulong *styles;
+  int    nstyles;
 };
 
 void wininit(Window *, Window *, Rectangle);
@@ -397,7 +390,7 @@ struct Fid {
   int fid;
   int busy;
   int open;
-  int layer;	/* style layer assigned at QWctl open; -1 otherwise */
+
   Qid qid;
   Window *w;
   Dirtab *dir;

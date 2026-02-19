@@ -175,19 +175,13 @@ loadstylefile(char *path)
 
 
 /*
- * winframesync — compose all style layers and repaint the frame.
+ * winframesync — apply the window's single style layer to the frame and repaint.
  *
- * Each window has up to MAXSTYLAYERS independent style layers stored as
- * file-absolute {index, length} RLEs.  Layer N overrides layer N-1 at any
- * position where layer N has a non-zero style index.  Style index 0 is
- * always transparent (it does not cover a non-zero style from a lower layer).
+ * w->styles/w->nstyles is a file-absolute {index, length} RLE.  We intersect
+ * it with the visible window [org, org+nchars) to produce a frame-relative
+ * RLE which is handed to frsetstyles, then repaint.
  *
- * The composition is done with a flat per-character array over the visible
- * frame window [org, org+frnchars), which is then RLE-compressed and handed
- * to frsetstyles.
- *
- * Call after changing any layer, after a frame reinit, or after
- * textsetorigin changes t->org.
+ * Call after any style change, after a frame reinit, or when t->org changes.
  */
 void
 winframesync(Window *w)
@@ -195,8 +189,8 @@ winframesync(Window *w)
 	Frame *f;
 	Text *t;
 	Image **sc;
-	ulong *composed, *frstyles, org, frnchars;
-	int nfrstyles, i, j, L, hasstyles;
+	ulong *frstyles, org, frnchars;
+	int nfrstyles, i, j;
 	ulong k;
 
 	t = &w->body;
@@ -204,68 +198,46 @@ winframesync(Window *w)
 	org      = t->org;
 	frnchars = (ulong)f->nchars;
 
-	/* Quick exit if no style file was loaded or no layer has data. */
-	hasstyles = 0;
-	for(L = 0; L < w->nlayers; L++)
-		if(w->stylelayers[L] != nil){ hasstyles = 1; break; }
-
-	if(nstyles == 0 || !hasstyles){
+	if(nstyles == 0 || w->nstyles == 0){
 		frsetstyles(f, 0, nil, 0, nil);
 		frredraw(f);
 		flushimage(display, 1);
 		return;
 	}
 
-	/*
-	 * Build the Image* colour table: nstyles × NCOL entries.
-	 * Nil slots inherit the frame's default colour for that column.
-	 */
+	/* Build colour table: nstyles × NCOL */
 	sc = emalloc(nstyles * NCOL * sizeof(Image*));
 	for(i = 0; i < nstyles; i++)
 		for(j = 0; j < NCOL; j++){
 			Image *img = styles[i].cols[j];
 			if(img == nil)
 				img = f->cols[j];
-			sc[i * NCOL + j] = img;
+			sc[i*NCOL+j] = img;
 		}
 
-	/*
-	 * Compose all layers into a per-character style index array.
-	 * Layers are applied low-to-high so that higher layers overwrite.
-	 * Style index 0 is skipped (transparent).
-	 */
-	composed = emalloc(frnchars * sizeof(ulong));
+	/* Expand file-absolute RLE into a per-character style index array. */
+	ulong *composed = emalloc(frnchars * sizeof(ulong));
 	memset(composed, 0, frnchars * sizeof(ulong));
 
-	for(L = 0; L < w->nlayers; L++){
-		ulong *ls  = w->stylelayers[L];
-		int    nls = w->nstylelayers[L];
-		ulong  filepos = 0;
-		if(ls == nil) continue;
-		for(i = 0; i < nls; i++){
-			ulong sidx    = ls[i*2];
-			ulong slen    = ls[i*2+1];
-			ulong seg_end = filepos + slen;
-			if(sidx != 0){
-				ulong from    = filepos < org          ? org          : filepos;
-				ulong to      = seg_end < org+frnchars ? seg_end      : org+frnchars;
-				if(from < to){
-					ulong fr_from = from - org;
-					ulong fr_to   = to   - org;
-					for(k = fr_from; k < fr_to; k++)
-						composed[k] = sidx;
-				}
+	ulong filepos = 0;
+	for(i = 0; i < w->nstyles; i++){
+		ulong sidx    = w->styles[i*2];
+		ulong slen    = w->styles[i*2+1];
+		ulong seg_end = filepos + slen;
+		if(sidx != 0){
+			ulong from = filepos < org          ? org          : filepos;
+			ulong to   = seg_end < org+frnchars ? seg_end      : org+frnchars;
+			if(from < to){
+				for(k = from - org; k < to - org; k++)
+					composed[k] = sidx;
 			}
-			filepos = seg_end;
-			if(filepos >= org + frnchars)
-				break;
 		}
+		filepos = seg_end;
+		if(filepos >= org + frnchars)
+			break;
 	}
 
-	/*
-	 * RLE-compress composed[] into frstyles.
-	 * Worst case: every character has a different style → frnchars entries.
-	 */
+	/* RLE-compress composed[] into frstyles. */
 	frstyles  = emalloc(2 * (frnchars + 1) * sizeof(ulong));
 	nfrstyles = 0;
 	if(frnchars > 0){
@@ -296,47 +268,32 @@ winframesync(Window *w)
 }
 
 /*
- * winstyleinsert — keep style layers in sync when n runes are inserted at q0.
+ * winstyleinsert — keep w->styles in sync when n runes are inserted at q0.
  *
- * For each layer: widen the segment that covers q0 by n, so that all
- * absolute offsets after q0 remain correct.  Also updates the composed
- * per-frame cache (f->styles) so that styleat() returns correct values
- * immediately after frinsert, before the next full winframesync.
- *
- * Call this immediately after frinsert() for body text only.
+ * Widens the segment that covers q0 by n so that all absolute offsets after
+ * q0 remain correct.  Also pokes the frame-level cache (f->styles) so
+ * styleat() returns correct values immediately without a full winframesync.
  */
 void
 winstyleinsert(Window *w, uint q0, uint n)
 {
 	Text *t;
 	Frame *f;
-	int L, i;
+	int i;
 	ulong pos;
 
-	if(n == 0 || w->nlayers == 0)
+	if(n == 0 || w->nstyles == 0)
 		return;
 
-	/* 1. Shift every file-absolute style layer. */
-	for(L = 0; L < w->nlayers; L++){
-		ulong *seg  = w->stylelayers[L];
-		int    nsegs = w->nstylelayers[L];
-		if(seg == nil)
-			continue;
-		pos = 0;
-		for(i = 0; i < nsegs; i++){
-			/* Widen the first segment whose right edge is >= q0.
-			 * This matches frstyleinsert's "boundary belongs to the
-			 * left neighbour" convention. */
-			if(q0 <= pos + seg[i*2+1]){
-				seg[i*2+1] += n;
-				break;
-			}
-			pos += seg[i*2+1];
+	pos = 0;
+	for(i = 0; i < w->nstyles; i++){
+		if(q0 <= pos + w->styles[i*2+1]){
+			w->styles[i*2+1] += n;
+			break;
 		}
+		pos += w->styles[i*2+1];
 	}
 
-	/* 2. Update the composed per-frame cache so styleat() is immediately
-	 * correct.  Only valid if frinsert() was called (q0 in visible range). */
 	t = &w->body;
 	f = &t->fr;
 	if(f->nstyles > 0 && (ulong)q0 >= t->org && (ulong)q0 < t->org + (ulong)f->nchars)
@@ -344,210 +301,157 @@ winstyleinsert(Window *w, uint q0, uint n)
 }
 
 /*
- * winstyledelete — keep style layers in sync when runes [q0,q1) are removed.
+ * winstyledelete — keep w->styles in sync when runes [q0,q1) are removed.
  *
- * For each layer: remove/shrink the segments that overlap [q0,q1).  Segments
- * entirely after q1 are implicitly shifted backwards because their absolute
- * position is the accumulated sum of all preceding lengths.
- *
- * The per-frame cache update (frstyledelete) must be done by the caller
- * immediately after frdelete(), while the correct frame-relative p0/p1 are
- * still in scope.  This function only updates Window.stylelayers.
+ * Shrinks/removes segments that overlap [q0,q1).  Segments after q1 are
+ * implicitly shifted because their absolute position is the cumulative sum
+ * of preceding lengths.
  */
 void
 winstyledelete(Window *w, uint q0, uint q1)
 {
-	int L, i, new_nsegs;
+	int i, new_nsegs;
 	ulong pos, seg_end, overlap;
-	ulong *seg;
 
-	if(q0 >= q1 || w->nlayers == 0)
+	if(q0 >= q1 || w->nstyles == 0)
 		return;
 
-	for(L = 0; L < w->nlayers; L++){
-		seg      = w->stylelayers[L];
-		int nsegs = w->nstylelayers[L];
-		if(seg == nil)
-			continue;
-		pos       = 0;
-		new_nsegs = 0;
-		for(i = 0; i < nsegs; i++){
-			ulong len  = seg[i*2+1];
-			seg_end    = pos + len;
-			/* overlap of this segment with [q0, q1) */
-			ulong ov0  = pos    > (ulong)q0 ? pos    : (ulong)q0;
-			ulong ov1  = seg_end < (ulong)q1 ? seg_end : (ulong)q1;
-			overlap    = ov1 > ov0 ? ov1 - ov0 : 0;
-			if(len - overlap > 0){
-				seg[new_nsegs*2]   = seg[i*2];
-				seg[new_nsegs*2+1] = len - overlap;
-				new_nsegs++;
-			}
-			pos = seg_end;
+	pos       = 0;
+	new_nsegs = 0;
+	for(i = 0; i < w->nstyles; i++){
+		ulong len = w->styles[i*2+1];
+		seg_end   = pos + len;
+		ulong ov0 = pos     > (ulong)q0 ? pos     : (ulong)q0;
+		ulong ov1 = seg_end < (ulong)q1 ? seg_end : (ulong)q1;
+		overlap   = ov1 > ov0 ? ov1 - ov0 : 0;
+		if(len - overlap > 0){
+			w->styles[new_nsegs*2]   = w->styles[i*2];
+			w->styles[new_nsegs*2+1] = len - overlap;
+			new_nsegs++;
 		}
-		w->nstylelayers[L] = new_nsegs;
+		pos = seg_end;
 	}
+	w->nstyles = new_nsegs;
 }
 
 /*
- * winclearstyle — free style data in every layer of w.
- *
- * Does not call winframesync; the caller is responsible for repainting
- * (either immediately via winframesync or implicitly via the next textredraw).
+ * winclearstyle — free all style data for w.
  */
 void
 winclearstyle(Window *w)
 {
-	int L;
-	for(L = 0; L < w->nlayers; L++){
-		free(w->stylelayers[L]);
-		w->stylelayers[L]  = nil;
-		w->nstylelayers[L] = 0;
-	}
-	/* nlayers is not reset: persistent ctl fids keep their layer indices. */
+	free(w->styles);
+	w->styles  = nil;
+	w->nstyles = 0;
 }
 
 /*
- * winsetstyle — splice new RLE style segments into one layer of w.
+ * winsetstyle — splice new RLE segments into w->styles.
  *
- *   layer   — which layer to update (0 = lowest priority)
  *   start   — character offset where the new segments begin
  *   newseg  — flat array of {style_index, length} pairs
  *   nnewseg — number of pairs (total ulongs = 2*nnewseg)
  *
- * Special case: if nnewseg == 0, clear this layer entirely.
+ * If nnewseg == 0, clears all style data.
  */
 void
-winsetstyle(Window *w, int layer, ulong start, ulong *newseg, int nnewseg)
+winsetstyle(Window *w, ulong start, ulong *newseg, int nnewseg)
 {
 	ulong *old, *res;
 	int nold, nres, j;
-	ulong pos, newlen, end;
-
-	if(layer < 0 || layer >= MAXSTYLAYERS)
-		return;
+	ulong pos, newlen, end, covered;
 
 	if(nnewseg == 0){
-		free(w->stylelayers[layer]);
-		w->stylelayers[layer]  = nil;
-		w->nstylelayers[layer] = 0;
+		winclearstyle(w);
 		return;
 	}
 
-	old  = w->stylelayers[layer];
-	nold = w->nstylelayers[layer];
+	old  = w->styles;
+	nold = w->nstyles;
 
-	/* compute total length covered by the new segments */
 	newlen = 0;
 	for(j = 0; j < nnewseg; j++)
-		newlen += newseg[j*2 + 1];
+		newlen += newseg[j*2+1];
 	end = start + newlen;
 
-	/*
-	 * Allocate worst case: existing segments + new segments + 2 split
-	 * fragments + 1 gap fill = nold + nnewseg + 3 entries.
-	 */
 	res  = emalloc(2 * (nold + nnewseg + 3) * sizeof(ulong));
 	nres = 0;
 
-	/*
-	 * Phase 1 — copy old segments that lie entirely before 'start'.
-	 * Trim any segment that straddles 'start'.
-	 * 'covered' tracks the file position up to which res[] has been written.
-	 */
-	ulong covered = 0;
+	/* Phase 1: copy old segments entirely before 'start'; trim straddle. */
+	covered = 0;
 	pos = 0;
 	for(j = 0; j < nold; j++){
 		ulong sidx = old[j*2];
 		ulong slen = old[j*2+1];
 		ulong send = pos + slen;
-
 		if(send <= start){
-			/* entirely before: copy verbatim */
-			res[nres*2]     = sidx;
-			res[nres*2 + 1] = slen;
+			res[nres*2]   = sidx;
+			res[nres*2+1] = slen;
 			nres++;
 			covered = send;
 		} else if(pos < start){
-			/* straddles start: keep the prefix */
-			res[nres*2]     = sidx;
-			res[nres*2 + 1] = start - pos;
+			res[nres*2]   = sidx;
+			res[nres*2+1] = start - pos;
 			nres++;
 			covered = start;
 		}
-		/* segments that start at or after 'start' are handled below */
 		pos += slen;
 		if(pos >= start)
 			break;
 	}
 
-	/*
-	 * Gap fill — if the old array didn't reach 'start' (including the
-	 * common case of an empty array), insert an explicit style-0 entry
-	 * so the new segments land at the correct file position.
-	 */
+	/* Gap fill if old array didn't reach 'start'. */
 	if(covered < start){
-		res[nres*2]     = 0;
-		res[nres*2 + 1] = start - covered;
+		res[nres*2]   = 0;
+		res[nres*2+1] = start - covered;
 		nres++;
 	}
 
-	/*
-	 * Phase 2 — insert the new segments.
-	 */
+	/* Phase 2: insert new segments. */
 	for(j = 0; j < nnewseg; j++){
-		res[nres*2]     = newseg[j*2];
-		res[nres*2 + 1] = newseg[j*2 + 1];
+		res[nres*2]   = newseg[j*2];
+		res[nres*2+1] = newseg[j*2+1];
 		nres++;
 	}
 
-	/*
-	 * Phase 3 — copy old segments that lie entirely after 'end'.
-	 * Trim any segment that straddles 'end'.
-	 */
+	/* Phase 3: copy old segments entirely after 'end'; trim straddle. */
 	pos = 0;
 	for(j = 0; j < nold; j++){
 		ulong sidx = old[j*2];
 		ulong slen = old[j*2+1];
 		ulong send = pos + slen;
-
 		if(send > end){
-			ulong from = (pos < end) ? end : pos;
-			res[nres*2]     = sidx;
-			res[nres*2 + 1] = send - from;
+			ulong from = pos < end ? end : pos;
+			res[nres*2]   = sidx;
+			res[nres*2+1] = send - from;
 			nres++;
 		}
 		pos += slen;
 	}
 
 	free(old);
-	w->stylelayers[layer]  = res;
-	w->nstylelayers[layer] = nres;
+	w->styles  = res;
+	w->nstyles = nres;
 }
 
 /*
  * ctlstyleparse — parse and apply a "style" ctl command line.
  *
- * Format (p points past "style ", e is one-past-end of the message):
+ * Format (p points past "style ", e is end of the line):
  *
- *   <index>                                            clear entire document
- *   <index> <start> <length>                           one segment
- *   <index> <start> <length> [<index> <start> <length> ...]  multiple segments
+ *   <index>                               "style 0" — clear all style data
+ *   <index> <start> <length> [...]        one or more segments
  *
- * Every entry carries its own absolute start position, so non-contiguous
- * ranges need no gap-filling.  winframesync is called once at the end.
- *
- * Returns an error string, or nil on success.
+ * Returns an error string on failure, nil on success.
  */
 char*
-ctlstyleparse(Window *w, int layer, char *p, char *e)
+ctlstyleparse(Window *w, char *p, char *e)
 {
-	ulong nums[768];	/* up to 256 {index,start,length} triples */
+	ulong nums[768];
 	int n, nnums, i;
 	char *ep;
 	ulong seg[2];
 
-	/* collect all numbers from the remainder of the line */
 	nnums = 0;
 	while(p < e && *p != '\n'){
 		while(p < e && (*p == ' ' || *p == '\t'))
@@ -568,45 +472,27 @@ ctlstyleparse(Window *w, int layer, char *p, char *e)
 	n = nnums;
 
 	if(n == 1){
-		/*
-		 * "style 0" — clear this layer.
-		 * Other layers are unaffected.  Only redraw if the frame has
-		 * style data that might now look different.
-		 */
-		int had = w->body.fr.nstyles > 0;
-		winsetstyle(w, layer, 0, nil, 0);
+		/* "style 0" — clear all style data. */
+		int had = w->body.fr.nstyles > 0 || w->nstyles > 0;
+		winclearstyle(w);
 		if(had)
 			winframesync(w);
 		return nil;
 	}
 
-	/*
-	 * "style <index> <start> <length> [<index> <start> <length> ...]"
-	 * Every entry is a triple; total number count must be a multiple of 3.
-	 */
 	if(n % 3 != 0)
 		return "bad style syntax: arguments must be triples of index start length";
 
-	/*
-	 * Apply each triple independently via winsetstyle so that
-	 * non-contiguous ranges work without gap-filling.
-	 * winframesync is deferred until all segments are installed.
-	 */
 	for(i = 0; i < n; i += 3){
-		seg[0] = nums[i];	/* index */
-		seg[1] = nums[i+2];	/* length */
-		winsetstyle(w, layer, nums[i+1], seg, 1);
+		seg[0] = nums[i];    /* index */
+		seg[1] = nums[i+2];  /* length */
+		winsetstyle(w, nums[i+1], seg, 1);
 	}
 
-	/*
-	 * Only redraw if at least one of the new segments falls within the
-	 * currently visible frame window [t->org, t->org + f->nchars).
-	 * Segments that are entirely above or below the scroll position have
-	 * no effect on the display and need no repaint.
-	 */
+	/* Only redraw if any segment touches the visible window. */
 	{
 		Text *t = &w->body;
-		ulong org = t->org;
+		ulong org  = t->org;
 		ulong fend = org + t->fr.nchars;
 		for(i = 0; i < n; i += 3){
 			ulong sstart = nums[i+1];

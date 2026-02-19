@@ -329,8 +329,7 @@ winclose(Window *w)
 			free(w->incl[i]);
 		free(w->incl);
 		free(w->evring.buf);
-		for(i = 0; i < w->nlayers; i++)
-			free(w->stylelayers[i]);
+		free(w->styles);
 		free(w);
 	}
 }
