@@ -976,24 +976,7 @@ out:
 			w->noecho = FALSE;
 			m = 6;
 		}else
-		if(strncmp(p, "style ", 6) == 0){	/* set per-character styles (this fid's layer) */
-			char *pp, *eq;
-			pp = p + 6;
-			eq = memchr(pp, '\n', e - pp);
-			if(eq == nil)
-				eq = e;
-			err = ctlstyleparse(w, pp, eq);
-			if(err != nil)
-				break;
-			m = (eq - p);
-			if(eq < e && *eq == '\n')
-				m++;
-		}else
-		if(strncmp(p, "clearstyle", 10) == 0){	/* clear all style layers and repaint */
-			winclearstyle(w);
-			winframesync(w);
-			m = 10;
-		}else{
+		{
 			err = Ebadctl;
 			break;
 		}
