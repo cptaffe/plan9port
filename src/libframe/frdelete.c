@@ -19,8 +19,6 @@ frdelete(Frame *f, ulong p0, ulong p1)
 		return 0;
 	if(p1 > f->nchars)
 		p1 = f->nchars;
-	if(f->nstyles > 0)
-		frstyledelete(f, p0, p1);
 	n0 = _frfindbox(f, 0, 0, p0);
 	if(n0 == f->nbox)
 		drawerror(f->display, "off end in frdelete");

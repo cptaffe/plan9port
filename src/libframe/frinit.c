@@ -79,13 +79,17 @@ frclear(Frame *f, int freeall)
 		_frdelbox(f, 0, f->nbox-1);
 	if(f->box)
 		free(f->box);
-	/* style arrays are always freed; winframesync re-applies them after reinit */
+	/* Style arrays are always freed here.  In Acme, callers that need to
+	 * protect against concurrent style RLE updates (frstyleinsert/
+	 * frstyledelete) must pre-clear f->styles and f->stylecols (setting
+	 * them to nil under their own lock) before calling frclear; the
+	 * free(nil) calls below are then no-ops. */
 	free(f->stylecols);
-	f->stylecols = nil;
+	f->stylecols  = nil;
 	f->nstylecols = 0;
 	free(f->styles);
-	f->styles = nil;
-	f->nstyles = 0;
+	f->styles     = nil;
+	f->nstyles    = 0;
 	if(freeall){
 		freeimage(f->tick);
 		freeimage(f->tickback);
@@ -129,13 +133,16 @@ frsetstyles(Frame *f, int nsc, Image **sc, int ns, ulong *st)
 		}
 		memmove(newst, st, 2 * ns * sizeof(ulong));
 	}
+	/* In Acme the caller (winframesync) holds a Window-level stylelock
+	 * across the frsetstyles call, so frstyleinsert/frstyledelete on the
+	 * display thread cannot race with this free.  Non-Acme callers of
+	 * libframe are single-threaded and need no locking. */
 	free(f->stylecols);
 	free(f->styles);
 	f->stylecols  = newsc;
 	f->nstylecols = nsc;
 	f->styles     = newst;
 	f->nstyles    = ns;
-	/* keep cols[0..NCOL-1] in sync with style 0 */
 	frstylesync(f);
 	return 1;
 }

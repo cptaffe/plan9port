@@ -1,0 +1,5 @@
+CompileFlags:
+  Add:
+    - -DPLAN9PORT
+    - -I/Users/cptaffe/src/plan9port/include
+    - -fcommon

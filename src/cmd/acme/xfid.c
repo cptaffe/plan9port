@@ -71,15 +71,18 @@ xfidflush(Xfid *x)
 	for(j=0; j<row.ncol; j++){
 		c = row.col[j];
 		for(i=0; i<c->nw; i++){
+			Fid *ef;
 			w = c->w[i];
 			winlock(w, 'E');
-			wx = w->eventx;
-			if(wx!=nil && wx->fcall.tag==x->fcall.oldtag){
-				w->eventx = nil;
-				wx->flushed = TRUE;
-				sendp(wx->c, nil);
-				winunlock(w);
-				goto out;
+			for(ef = w->eventhead; ef != nil; ef = ef->eventnext){
+				wx = ef->eventx;
+				if(wx != nil && wx->fcall.tag == x->fcall.oldtag){
+					ef->eventx = nil;
+					wx->flushed = TRUE;
+					sendp(wx->c, nil);
+					winunlock(w);
+					goto out;
+				}
 			}
 			winunlock(w);
 		}
@@ -115,6 +118,18 @@ xfidopen(Xfid *x)
 		case QWxdata:
 			w->nopen[q]++;
 			break;
+		case QWctl:
+			/*
+			 * Assign the next available style layer to this fid.
+			 * The layer persists after the fid is closed so that
+			 * "write style, exit" tools (like Highlight) leave their
+			 * colours in the window.  nlayers grows monotonically up
+			 * to MAXSTYLAYERS; beyond that new opens share the last slot.
+			 */
+			x->f->layer = w->nlayers;
+			if(w->nlayers < MAXSTYLAYERS - 1)
+				w->nlayers++;
+			break;
 		case QWevent:
 			if(w->nopen[q]++ == 0){
 				if(!w->isdir && w->col!=nil){
@@ -122,6 +137,26 @@ xfidopen(Xfid *x)
 					winsettag(w);
 				}
 			}
+			/*
+			 * Insert this fid at the head of the event pipeline.
+			 * Start it from where the previous head's read pointer
+			 * was, so events the previous head had been given but
+			 * not yet read now flow through us first.
+			 * Freeze the previous head's permission at its current
+			 * evread; it will only advance further via our write-backs.
+			 */
+			if(w->eventhead != nil){
+				x->f->evhead  = w->eventhead->evread;
+				x->f->evread  = w->eventhead->evread;
+				x->f->evlimit = w->evring.tail;
+				w->eventhead->evlimit = w->eventhead->evread;
+			} else {
+				x->f->evhead  = w->evring.tail;
+				x->f->evread  = w->evring.tail;
+				x->f->evlimit = w->evring.tail;
+			}
+			x->f->eventnext = w->eventhead;
+			w->eventhead = x->f;
 			break;
 		case QWrdsel:
 			/*
@@ -240,22 +275,53 @@ xfidclose(Xfid *x)
 			w->nomark = FALSE;
 			/* fall through */
 		case QWaddr:
-		case QWevent:	/* BUG: do we need to shut down Xfid? */
 			if(--w->nopen[q] == 0){
-				if(q == QWdata || q == QWxdata)
-					w->nomark = FALSE;
-				if(q==QWevent && !w->isdir && w->col!=nil){
+			}
+			break;
+		case QWevent:
+		{
+			Fid *fp, *fn;
+			/*
+			 * Splice this fid out of the event pipeline.
+			 * Pass-through: give the next reader permission to
+			 * read everything up to our evlimit (events we had
+			 * been given but may not have forwarded yet).
+			 * If we were the head, make eventnext the new head
+			 * so it receives future events from winevent.
+			 */
+			fn = x->f->eventnext;
+			if(w->eventhead == x->f){
+				w->eventhead = fn;
+			} else {
+				for(fp = w->eventhead; fp != nil; fp = fp->eventnext)
+					if(fp->eventnext == x->f){
+						fp->eventnext = fn;
+						break;
+					}
+			}
+			if(fn != nil){
+				/* forward all permission we held */
+				fn->evlimit = x->f->evlimit;
+				if(fn->eventx != nil && fn->evread < fn->evlimit){
+					Xfid *wx = fn->eventx;
+					fn->eventx = nil;
+					sendp(wx->c, nil);
+				}
+			}
+			x->f->eventnext = nil;
+
+			if(--w->nopen[q] == 0){
+				if(!w->isdir && w->col!=nil){
 					w->filemenu = TRUE;
 					winsettag(w);
 				}
-				if(q == QWevent){
-					free(w->dumpstr);
-					free(w->dumpdir);
-					w->dumpstr = nil;
-					w->dumpdir = nil;
-				}
+				free(w->dumpstr);
+				free(w->dumpdir);
+				w->dumpstr = nil;
+				w->dumpdir = nil;
 			}
 			break;
+		}
 		case QWrdsel:
 			close(w->rdselfd);
 			w->rdselfd = 0;
@@ -830,18 +896,23 @@ out:
 			w->noecho = FALSE;
 			m = 6;
 		}else
-		if(strncmp(p, "style ", 6) == 0){	/* set per-character styles */
+		if(strncmp(p, "style ", 6) == 0){	/* set per-character styles (this fid's layer) */
 			char *pp, *eq;
 			pp = p + 6;
 			eq = memchr(pp, '\n', e - pp);
 			if(eq == nil)
 				eq = e;
-			err = ctlstyleparse(w, pp, eq);
+			err = ctlstyleparse(w, x->f->layer, pp, eq);
 			if(err != nil)
 				break;
 			m = (eq - p);
 			if(eq < e && *eq == '\n')
 				m++;
+		}else
+		if(strncmp(p, "clearstyle", 10) == 0){	/* clear all style layers and repaint */
+			winclearstyle(w);
+			winframesync(w);
+			m = 10;
 		}else{
 			err = Ebadctl;
 			break;
@@ -864,6 +935,25 @@ out:
 		textscrdraw(&w->body);
 }
 
+static void
+evring_gc(Window *w)
+{
+	vlong minhead;
+	Fid *f;
+	int n;
+
+	minhead = w->evring.tail;
+	for(f = w->eventhead; f != nil; f = f->eventnext)
+		if(f->evhead < minhead)
+			minhead = f->evhead;
+	n = (int)(minhead - w->evring.base);
+	if(n <= 0)
+		return;
+	memmove(w->evring.buf, w->evring.buf + n,
+		(int)(w->evring.tail - minhead));
+	w->evring.base = minhead;
+}
+
 void
 xfideventwrite(Xfid *x, Window *w)
 {
@@ -874,7 +964,8 @@ xfideventwrite(Xfid *x, Window *w)
 	int isfbuf;
 	Text *t;
 	int c;
-	uint q0, q1;
+	uint q0, q1, sz;
+	Fid *fn;
 
 	err = nil;
 	isfbuf = TRUE;
@@ -905,35 +996,58 @@ xfideventwrite(Xfid *x, Window *w)
 		if(*p++ != '\n')
 			goto Rescue;
 		m = p-(x->fcall.data+n);
-		if('a'<=c && c<='z')
-			t = &w->tag;
-		else if('A'<=c && c<='Z')
-			t = &w->body;
-		else
-			goto Rescue;
-		if(q0>t->file->b.nc || q1>t->file->b.nc || q0>q1)
-			goto Rescue;
 
-		qlock(&row.lk);	/* just like mousethread */
-		switch(c){
-		case 'x':
-		case 'X':
-			execute(t, q0, q1, TRUE, nil);
-			break;
-		case 'l':
-		case 'L':
-			look3(t, q0, q1, TRUE, FALSE);
-			break;
-		case 'r':
-		case 'R':
-			look3(t, q0, q1, TRUE, TRUE);
-			break;
-		default:
+		/*
+		 * Acknowledge the in-flight event at evhead.
+		 * Read its size from the ring, advance evhead past it,
+		 * then either forward to the next reader in the chain
+		 * or execute at the terminus (no next reader).
+		 */
+		if(x->f->evhead >= w->evring.tail)
+			goto Rescue;	/* nothing in flight — shouldn't happen */
+		memmove(&sz, w->evring.buf + (x->f->evhead - w->evring.base), 4);
+		x->f->evhead += 4 + sz;
+
+		fn = x->f->eventnext;
+		if(fn != nil){
+			/* Forward: give the next reader permission to read. */
+			fn->evlimit += 4 + sz;
+			if(fn->eventx != nil && fn->evread < fn->evlimit){
+				Xfid *wx = fn->eventx;
+				fn->eventx = nil;
+				sendp(wx->c, nil);
+			}
+		} else {
+			/* Terminus: execute as acme's built-in handler would. */
+			if('a'<=c && c<='z')
+				t = &w->tag;
+			else if('A'<=c && c<='Z')
+				t = &w->body;
+			else
+				goto Rescue;
+			if(q0>t->file->b.nc || q1>t->file->b.nc || q0>q1)
+				goto Rescue;
+			qlock(&row.lk);
+			switch(c){
+			case 'x':
+			case 'X':
+				execute(t, q0, q1, TRUE, nil);
+				break;
+			case 'l':
+			case 'L':
+				look3(t, q0, q1, TRUE, FALSE);
+				break;
+			case 'r':
+			case 'R':
+				look3(t, q0, q1, TRUE, TRUE);
+				break;
+			default:
+				qunlock(&row.lk);
+				goto Rescue;
+			}
 			qunlock(&row.lk);
-			goto Rescue;
 		}
-		qunlock(&row.lk);
-
+		evring_gc(w);
 	}
 
     Out:
@@ -1075,37 +1189,33 @@ void
 xfideventread(Xfid *x, Window *w)
 {
 	Fcall fc;
-	int i, n;
+	Fid *f;
+	uint sz;
+	int i;
 
+	f = x->f;
 	i = 0;
 	x->flushed = FALSE;
-	while(w->nevents == 0){
+	while(f->evread >= f->evlimit){
 		if(i){
 			if(!x->flushed)
 				respond(x, &fc, "window shut down");
 			return;
 		}
-		w->eventx = x;
+		f->eventx = x;
 		winunlock(w);
 		recvp(x->c);
 		winlock(w, 'F');
 		i++;
 	}
 
-	n = w->nevents;
-	if(n > x->fcall.count)
-		n = x->fcall.count;
-	fc.count = n;
-	fc.data = w->events;
+	/* Deliver exactly one event: skip the 4-byte size prefix. */
+	memmove(&sz, w->evring.buf + (f->evread - w->evring.base), 4);
+	fc.count = sz;
+	fc.data  = w->evring.buf + (f->evread - w->evring.base) + 4;
 	respond(x, &fc, nil);
-	w->nevents -= n;
-	if(w->nevents){
-		memmove(w->events, w->events+n, w->nevents);
-		w->events = erealloc(w->events, w->nevents);
-	}else{
-		free(w->events);
-		w->events = nil;
-	}
+	f->evread += 4 + sz;
+	/* evhead stays put until write-back; the event is now "in flight". */
 }
 
 void

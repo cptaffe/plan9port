@@ -115,6 +115,7 @@ int	ismtpt(char*);
 
 /* style management */
 int		loadstylefile(char*);
-void	winsetstyle(Window*, ulong, ulong*, int);
+void	winsetstyle(Window*, int, ulong, ulong*, int);
+void	winclearstyle(Window*);
 void	winframesync(Window*);
-char*	ctlstyleparse(Window*, char*, char*);
+char*	ctlstyleparse(Window*, int, char*, char*);
