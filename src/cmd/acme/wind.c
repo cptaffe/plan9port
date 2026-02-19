@@ -329,6 +329,7 @@ winclose(Window *w)
 			free(w->incl[i]);
 		free(w->incl);
 		free(w->evring.buf);
+		winlogfree(w);
 		free(w->styles);
 		free(w);
 	}
@@ -348,6 +349,16 @@ windelete(Window *w)
 			sendp(x->c, nil);
 		}
 	}
+
+	/*
+	 * Wake every blocked <winid>/log reader.  winlogfree sets l->closed=1
+	 * and calls rwakeupall while w->body.file is still valid (the window
+	 * has not been freed yet — that only happens when decref reaches 0 in
+	 * winclose).  Calling it here (during the logical deletion from the
+	 * column) rather than inside winclose (after textclose has nulled
+	 * w->body.file) eliminates the NULL-deref crash in winlock.
+	 */
+	winlogfree(w);
 }
 
 void

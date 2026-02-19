@@ -1,7 +1,7 @@
 #!/bin/bash
 fshell=$(finger $(whoami) | sed -n 's/.*Shell: //p' | sed 1q)
 SHELL=${fshell:-$SHELL}
-PLAN9=${PLAN9:-/usr/local/plan9}
+PLAN9=${PLAN9:-/Users/cptaffe/src/plan9port}
 cd $HOME
 arch=x86_64
 if arch -arch arm64 date >/dev/null 2>&1; then

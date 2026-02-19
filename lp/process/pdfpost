@@ -1,4 +1,4 @@
-#!/usr/local/plan9/bin/rc
+#!/Users/cptaffe/src/plan9port/bin/rc
 # convert PDF output to PostScript
 if (! ~ $DEBUG '') flag x +
 PATCH='%!PS

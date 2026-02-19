@@ -346,6 +346,58 @@ winclearstyle(Window *w)
 }
 
 /*
+ * winreplacestyles — O(N) bulk replacement of all style data from sorted triples.
+ *
+ *   triples  — flat array of (index, start, length) tuples, sorted by start,
+ *              non-overlapping.  Gaps between entries are filled with style 0.
+ *   ntriples — number of tuples (total ulongs = 3*ntriples)
+ *
+ * This is used by ctlstyleparse for the combined "style 0 idx s l …" form so
+ * that a single ctl write can atomically clear and replace all styles without
+ * calling winsetstyle N times (which is O(N²)).
+ */
+static void
+winreplacestyles(Window *w, ulong *triples, int ntriples)
+{
+	ulong *newst;
+	int nres, i;
+	ulong pos, idx, start, len;
+
+	if(ntriples == 0){
+		winclearstyle(w);
+		return;
+	}
+
+	/* Worst case: gap before every entry + each entry itself = 2·N segments. */
+	newst = emalloc(2 * (2 * ntriples + 1) * sizeof(ulong));
+	nres = 0;
+	pos  = 0;
+
+	for(i = 0; i < ntriples; i++){
+		idx   = triples[i*3];
+		start = triples[i*3 + 1];
+		len   = triples[i*3 + 2];
+
+		if(start > pos){
+			/* Gap: fill with style 0. */
+			newst[nres*2]   = 0;
+			newst[nres*2+1] = start - pos;
+			nres++;
+		}
+		if(len > 0){
+			newst[nres*2]   = idx;
+			newst[nres*2+1] = len;
+			nres++;
+		}
+		pos = start + len;
+	}
+
+	free(w->styles);
+	w->styles  = newst;
+	w->nstyles = nres;
+}
+
+/*
  * winsetstyle — splice new RLE segments into w->styles.
  *
  *   start   — character offset where the new segments begin
@@ -447,10 +499,16 @@ winsetstyle(Window *w, ulong start, ulong *newseg, int nnewseg)
 char*
 ctlstyleparse(Window *w, char *p, char *e)
 {
-	ulong nums[768];
-	int n, nnums, i;
+	ulong *nums;
+	int n, nnums, nnumsmax, i;
 	char *ep;
 	ulong seg[2];
+	char *err;
+
+	/* Start with room for 4096 numbers (~1365 triples); grow as needed. */
+	nnumsmax = 4096;
+	nums = emalloc(nnumsmax * sizeof(ulong));
+	err  = nil;
 
 	nnums = 0;
 	while(p < e && *p != '\n'){
@@ -458,16 +516,22 @@ ctlstyleparse(Window *w, char *p, char *e)
 			p++;
 		if(p >= e || *p == '\n')
 			break;
-		if(nnums >= (int)(sizeof nums / sizeof nums[0]))
-			return "too many style arguments";
+		if(nnums >= nnumsmax){
+			nnumsmax *= 2;
+			nums = erealloc(nums, nnumsmax * sizeof(ulong));
+		}
 		nums[nnums++] = strtoul(p, &ep, 10);
-		if(ep == p)
-			return "bad style syntax";
+		if(ep == p){
+			err = "bad style syntax";
+			goto done;
+		}
 		p = ep;
 	}
 
-	if(nnums == 0)
-		return "missing style index";
+	if(nnums == 0){
+		err = "missing style index";
+		goto done;
+	}
 
 	n = nnums;
 
@@ -477,11 +541,28 @@ ctlstyleparse(Window *w, char *p, char *e)
 		winclearstyle(w);
 		if(had)
 			winframesync(w);
-		return nil;
+		goto done;
 	}
 
-	if(n % 3 != 0)
-		return "bad style syntax: arguments must be triples of index start length";
+	if(n > 1 && nums[0] == 0 && (n - 1) % 3 == 0){
+		/*
+		 * "style 0 idx1 s1 l1 idx2 s2 l2 …" — atomic clear-and-replace.
+		 *
+		 * The compositor (acme-styles) sends this combined form so that
+		 * the entire Apply results in exactly ONE ctl write and therefore
+		 * ONE winframesync call.  winreplacestyles builds w->styles in
+		 * O(N) directly from the sorted triple list, avoiding the O(N²)
+		 * cost of calling winsetstyle N times.
+		 */
+		winreplacestyles(w, &nums[1], (n - 1) / 3);
+		winframesync(w);
+		goto done;
+	}
+
+	if(n % 3 != 0){
+		err = "bad style syntax: arguments must be triples of index start length";
+		goto done;
+	}
 
 	for(i = 0; i < n; i += 3){
 		seg[0] = nums[i];    /* index */
@@ -503,5 +584,8 @@ ctlstyleparse(Window *w, char *p, char *e)
 			}
 		}
 	}
-	return nil;
+
+done:
+	free(nums);
+	return err;
 }

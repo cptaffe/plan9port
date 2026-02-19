@@ -17,6 +17,7 @@ enum {
   QWeditout,
   QWerrors,
   QWevent,
+  QWlog,
   QWrdsel,
   QWwrsel,
   QWtag,
@@ -235,6 +236,22 @@ struct WinEvRing {
 	vlong  tail;		/* file offset of next write */
 };
 
+/* WinEditLog — read-only per-window body-edit notification stream.
+ * Readers block on xfidwinlogread; no write-back required. */
+typedef struct WinEditLog WinEditLog;
+struct WinEditLog {
+  QLock   lk;
+  Rendez  r;
+  vlong   start;      /* global offset of ev[0] */
+  char  **ev;         /* queued event strings */
+  int     nev, mev;
+  Fid   **f;          /* registered reader fids */
+  int     nf, mf;
+  Xfid  **read;       /* Xfids currently blocked in a read */
+  int     nread, mread;
+  int     closed;     /* window closing: wake readers with EOF */
+};
+
 struct Window {
   QLock lk;
   Ref ref;
@@ -286,6 +303,7 @@ struct Window {
    */
   ulong *styles;
   int    nstyles;
+  WinEditLog editlog; /* per-window body edit notification log */
 };
 
 void wininit(Window *, Window *, Rectangle);
@@ -433,6 +451,14 @@ void xfidlogopen(Xfid *);
 void xfidlogread(Xfid *);
 void xfidlogflush(Xfid *);
 void xfidlog(Window *, char *);
+
+/* per-window body-edit notification log (QWlog / "<winid>/log") */
+void xfidwinlogopen(Xfid *, Window *);
+void xfidwinlogclose(Xfid *, Window *);
+void xfidwinlogread(Xfid *, Window *);
+void xfidwinlogflush(Xfid *, Window *);
+void winlogedit(Window *, char, ulong, ulong);
+void winlogfree(Window *);
 
 struct Reffont {
   Ref ref;

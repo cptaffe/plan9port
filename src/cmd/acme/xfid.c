@@ -74,6 +74,7 @@ xfidflush(Xfid *x)
 			Fid *ef;
 			w = c->w[i];
 			winlock(w, 'E');
+			xfidwinlogflush(x, w);
 			for(ef = w->eventhead; ef != nil; ef = ef->eventnext){
 				wx = ef->eventx;
 				if(wx != nil && wx->fcall.tag == x->fcall.oldtag){
@@ -148,6 +149,9 @@ xfidopen(Xfid *x)
 			}
 			x->f->eventnext = w->eventhead;
 			w->eventhead = x->f;
+			break;
+		case QWlog:
+			xfidwinlogopen(x, w);
 			break;
 		case QWrdsel:
 			/*
@@ -320,6 +324,9 @@ xfidclose(Xfid *x)
 			}
 			break;
 		}
+		case QWlog:
+			xfidwinlogclose(x, w);
+			break;
 		case QWrdsel:
 			close(w->rdselfd);
 			w->rdselfd = 0;
@@ -419,6 +426,10 @@ xfidread(Xfid *x)
 
 	case QWevent:
 		xfideventread(x, w);
+		break;
+
+	case QWlog:
+		xfidwinlogread(x, w);
 		break;
 
 	case QWdata:
@@ -635,6 +646,10 @@ xfidwrite(Xfid *x)
 
 	case QWevent:
 		xfideventwrite(x, w);
+		break;
+
+	case QWlog:
+		respond(x, &fc, Eperm);
 		break;
 
 	case QWtag:

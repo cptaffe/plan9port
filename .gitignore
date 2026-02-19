@@ -297,3 +297,4 @@ state.journal
 state.old
 unix/*.tgz
 y.tab.[ch]
+test

@@ -420,6 +420,9 @@ textinsert(Text *t, uint q0, Rune *r, uint n, int tofile)
 	/* keep file-absolute style layers in sync */
 	if(t->what == Body && t->w != nil && t->w->nstyles > 0)
 		winstyleinsert(t->w, q0, n);
+	/* notify per-window edit log readers */
+	if(t->what == Body && t->w != nil)
+		winlogedit(t->w, 'I', (ulong)q0, (ulong)n);
 	if(t->w){
 		c = 'i';
 		if(t->what == Body)
@@ -531,6 +534,9 @@ textdelete(Text *t, uint q0, uint q1, int tofile)
 	/* keep file-absolute style layers in sync */
 	if(t->what == Body && t->w != nil && t->w->nstyles > 0)
 		winstyledelete(t->w, q0, q1);
+	/* notify per-window edit log readers */
+	if(t->what == Body && t->w != nil)
+		winlogedit(t->w, 'D', (ulong)q0, (ulong)q1);
 	if(t->w){
 		c = 'd';
 		if(t->what == Body)
