@@ -487,6 +487,117 @@ winsetstyle(Window *w, ulong start, ulong *newseg, int nnewseg)
 }
 
 /*
+ * winstyleprint — render w->styles as "idx start end\n" text.
+ *
+ * The window lock must be held by the caller.
+ * Caller must free the returned string.
+ */
+char*
+winstyleprint(Window *w)
+{
+	char *out;
+	int nout, mout, n;
+	ulong pos, i;
+	char line[64];
+
+	mout = 64;
+	out  = emalloc(mout);
+	nout = 0;
+	pos  = 0;
+
+	for(i = 0; i < (ulong)w->nstyles; i++){
+		ulong idx = w->styles[i*2];
+		ulong len = w->styles[i*2+1];
+		if(idx != 0){
+			n = snprint(line, sizeof line, "%lud %lud %lud\n",
+				idx, pos, pos + len);
+			if(nout + n + 1 > mout){
+				mout = nout + n + 256;
+				out  = erealloc(out, mout);
+			}
+			memmove(out + nout, line, n);
+			nout += n;
+		}
+		pos += len;
+	}
+	out[nout] = '\0';
+	return out;
+}
+
+/*
+ * xfidstyleflush — parse accumulated "idx start end\n" lines, replace
+ * w->styles atomically, and repaint.
+ *
+ * Called from xfidclose when a QWstyle fid opened for write is clunked.
+ * The window lock is held by the caller.
+ *
+ * Format: each line is "<index> <start_rune> <end_rune>\n" where end is
+ * exclusive.  Lines where end <= start or idx == 0 are silently ignored.
+ * Entries must be in ascending start order (the compositor already sorts).
+ */
+void
+xfidstyleflush(Window *w, char *buf, int nbuf)
+{
+	ulong *triples;
+	int ntriples, mtriples;
+	char *p, *e, *ep, *nl;
+	ulong idx, start, end;
+
+	triples  = nil;
+	ntriples = 0;
+	mtriples = 0;
+
+	p = buf;
+	e = p + nbuf;
+
+	while(p < e){
+		nl = memchr(p, '\n', e - p);
+
+		/* skip whitespace / comments */
+		while(p < (nl ? nl : e) && (*p == ' ' || *p == '\t'))
+			p++;
+		if(p >= e || (nl && p >= nl)){
+			p = nl ? nl + 1 : e;
+			continue;
+		}
+
+		/* idx */
+		idx = strtoul(p, &ep, 10);
+		if(ep == p){ p = nl ? nl + 1 : e; continue; }
+		p = ep;
+
+		/* start */
+		while(p < (nl ? nl : e) && (*p == ' ' || *p == '\t')) p++;
+		start = strtoul(p, &ep, 10);
+		if(ep == p){ p = nl ? nl + 1 : e; continue; }
+		p = ep;
+
+		/* end */
+		while(p < (nl ? nl : e) && (*p == ' ' || *p == '\t')) p++;
+		end = strtoul(p, &ep, 10);
+		if(ep == p){ p = nl ? nl + 1 : e; continue; }
+
+		if(end > start && idx > 0){
+			if(ntriples >= mtriples){
+				mtriples = mtriples ? mtriples * 2 : 64;
+				triples  = erealloc(triples,
+					3 * mtriples * sizeof(ulong));
+			}
+			triples[ntriples*3]     = idx;
+			triples[ntriples*3 + 1] = start;
+			triples[ntriples*3 + 2] = end - start; /* len for winreplacestyles */
+			ntriples++;
+		}
+
+		p = nl ? nl + 1 : e;
+	}
+
+	winreplacestyles(w, triples, ntriples);
+	free(triples);
+	winframesync(w);
+}
+
+/*
  * ctlstyleparse — parse and apply a "style" ctl command line.
  *
  * Format (p points past "style ", e is end of the line):

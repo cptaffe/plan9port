@@ -153,6 +153,19 @@ xfidopen(Xfid *x)
 		case QWlog:
 			xfidwinlogopen(x, w);
 			break;
+		case QWstyle:
+			/*
+			 * Opening for write clears the window's styles in-memory.
+			 * Actual repaint (winframesync) is deferred to fid clunk so
+			 * that all writes in the open→close sequence are applied as
+			 * a single atomic update with one winframesync call.
+			 */
+			if((x->fcall.mode & 3) == OWRITE ||
+			   (x->fcall.mode & 3) == ORDWR){
+				winclearstyle(w);
+				x->f->styleopen = 1;
+			}
+			break;
 		case QWrdsel:
 			/*
 			 * Use a temporary file.
@@ -327,6 +340,21 @@ xfidclose(Xfid *x)
 		case QWlog:
 			xfidwinlogclose(x, w);
 			break;
+		case QWstyle:
+			if(x->f->styleopen){
+				/*
+				 * Parse accumulated "idx start end\n" data and
+				 * repaint once.  w->styles was already cleared at
+				 * open time; this makes the entire Apply atomic.
+				 */
+				xfidstyleflush(w, x->f->stylebuf, x->f->nstylebuf);
+				free(x->f->stylebuf);
+				x->f->stylebuf  = nil;
+				x->f->nstylebuf = 0;
+				x->f->mstylebuf = 0;
+				x->f->styleopen = 0;
+			}
+			break;
 		case QWrdsel:
 			close(w->rdselfd);
 			w->rdselfd = 0;
@@ -431,6 +459,25 @@ xfidread(Xfid *x)
 	case QWlog:
 		xfidwinlogread(x, w);
 		break;
+
+	case QWstyle:
+	{
+		/* Return current body styles as "idx start end\n" text. */
+		char *b;
+		uint n;
+		b = winstyleprint(w);
+		n = strlen(b);
+		off = x->fcall.offset;
+		if(off > n)
+			off = n;
+		if(off + x->fcall.count > n)
+			x->fcall.count = n - off;
+		fc.count = x->fcall.count;
+		fc.data  = b + off;
+		respond(x, &fc, nil);
+		free(b);
+		break;
+	}
 
 	case QWdata:
 		/* BUG: what should happen if q1 > q0? */
@@ -651,6 +698,26 @@ xfidwrite(Xfid *x)
 	case QWlog:
 		respond(x, &fc, Eperm);
 		break;
+
+	case QWstyle:
+	{
+		/*
+		 * Accumulate write data in the Fid's stylebuf.  Parsing and
+		 * winframesync are deferred to xfidclose so the whole Apply
+		 * (open → N writes → close) is one atomic update.
+		 */
+		Fid *f = x->f;
+		int  n = x->fcall.count;
+		if(f->nstylebuf + n > f->mstylebuf){
+			f->mstylebuf = f->nstylebuf + n + 4096;
+			f->stylebuf  = erealloc(f->stylebuf, f->mstylebuf);
+		}
+		memmove(f->stylebuf + f->nstylebuf, x->fcall.data, n);
+		f->nstylebuf += n;
+		fc.count = x->fcall.count;
+		respond(x, &fc, nil);
+		break;
+	}
 
 	case QWtag:
 		t = &w->tag;

@@ -18,6 +18,7 @@ enum {
   QWerrors,
   QWevent,
   QWlog,
+  QWstyle,
   QWrdsel,
   QWwrsel,
   QWtag,
@@ -423,6 +424,12 @@ struct Fid {
   int nrpart;
   uchar rpart[UTFmax];
   vlong logoff; // for putlog
+
+  /* QWstyle write accumulation */
+  int   styleopen;	/* 1 if opened for write (flush at clunk) */
+  char *stylebuf;	/* accumulated write data */
+  int   nstylebuf;	/* bytes used */
+  int   mstylebuf;	/* bytes allocated */
 };
 
 struct Xfid {
