@@ -413,9 +413,7 @@ textinsert(Text *t, uint q0, Rune *r, uint n, int tofile)
 		t->org += n;
 	else if(q0 <= t->org+t->fr.nchars){
 		frinsert(&t->fr, r, r+n, q0-t->org);
-		/* keep per-frame style cache in sync; t->org unchanged here */
-		if(t->what == Body && t->w != nil)
-			frstyleinsert(&t->fr, q0-t->org, (ulong)n);
+		/* frinsert now owns frstyleinsert + frdrawrange internally */
 	}
 	/* keep file-absolute style layers in sync */
 	if(t->what == Body && t->w != nil && t->w->nstyles > 0)

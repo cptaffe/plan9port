@@ -4,20 +4,6 @@
 #include <mouse.h>
 #include <frame.h>
 
-void
-_frdrawtext(Frame *f, Point pt, Image *text, Image *back)
-{
-	Frbox *b;
-	int nb;
-
-	for(nb=0,b=f->box; nb<f->nbox; nb++, b++){
-		_frcklinewrap(f, &pt, b);
-		if(!f->noredraw && b->nrune >= 0)
-			stringbg(f->b, pt, text, ZP, f->font, (char*)b->ptr, back, ZP);
-		pt.x += b->wid;
-	}
-}
-
 static int
 nbytes(char *s0, int nr)
 {

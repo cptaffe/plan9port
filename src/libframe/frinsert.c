@@ -258,19 +258,16 @@ frinsert(Frame *f, Rune *sp, Rune *ep, ulong p0)
 				y = pt.y;
 		}
 	}
-	/* insertion can extend the selection, so the condition here is different */
-	if(f->p0<p0 && p0<=f->p1){
-		col = f->cols[HIGH];
-		tcol = f->cols[HTEXT];
-	}else{
-		col = f->cols[BACK];
-		tcol = f->cols[TEXT];
-	}
-	frselectpaint(f, ppt0, ppt1, col);
-	_frdrawtext(&frame, ppt0, tcol, col);
+	/*
+	 * Commit boxes to f->box before drawing so that frdrawrange can walk
+	 * the frame.  Update all state (nchars, selection, style RLE) before
+	 * the single draw call so that frdrawrange sees fully consistent state.
+	 */
 	_fraddbox(f, nn0, frame.nbox);
 	for(n=0; n<frame.nbox; n++)
 		f->box[nn0+n] = frame.box[n];
+	/* ppt0 currently points to p0; save it before _frclean may retreat nn0. */
+	pt = ppt0;
 	if(nn0>0 && f->box[nn0-1].nrune>=0 && ppt0.x-f->box[nn0-1].wid>=f->r.min.x){
 		--nn0;
 		ppt0.x -= f->box[nn0].wid;
@@ -286,6 +283,14 @@ frinsert(Frame *f, Rune *sp, Rune *ep, ulong p0)
 		f->p1 += frame.nchars;
 	if(f->p1 > f->nchars)
 		f->p1 = f->nchars;
+	frstyleinsert(f, p0, frame.nchars);
+	/* Single draw: frdrawrange is the authoritative style+selection paint. */
+	{
+		ulong fend = p0 + frame.nchars;
+		if(fend > f->nchars)
+			fend = f->nchars;
+		frdrawrange(f, pt, p0, fend);
+	}
 	if(f->p0 == f->p1)
 		frtick(f, frptofchar(f, f->p0), 1);
 }
