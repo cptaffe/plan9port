@@ -296,6 +296,7 @@ struct Window {
   uchar showdel;
   int id;
   Range addr;
+  int hasaddr;   /* 1 after a write to addr, cleared when style fid opens OWRITE */
   Range limit;
   uchar nopen[QMAX];
   uchar nomark;

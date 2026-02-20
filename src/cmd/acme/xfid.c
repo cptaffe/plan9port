@@ -164,8 +164,9 @@ xfidopen(Xfid *x)
 			if((x->fcall.mode & 3) == OWRITE ||
 			   (x->fcall.mode & 3) == ORDWR){
 				x->f->styleopen    = 1;
-				x->f->stylehasaddr = (w->addr.q0 != 0 || w->addr.q1 != 0);
+				x->f->stylehasaddr = w->hasaddr;
 				x->f->styleaddr    = w->addr;
+				w->hasaddr         = 0;
 			}
 			break;
 		case QWrdsel:
@@ -618,6 +619,7 @@ xfidwrite(Xfid *x)
 			break;
 		}
 		w->addr = a;
+		w->hasaddr = 1;
 		fc.count = x->fcall.count;
 		respond(x, &fc, nil);
 		break;
