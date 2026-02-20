@@ -18,7 +18,7 @@ nbytes(char *s0, int nr)
 
 /*
  * stylecols_for — return the NCOL colour set for style index idx.
- * Falls back to f->cols when the index is out of range.
+ * Falls back to f->cols for out-of-range indices (including 0 = default).
  */
 static Image**
 stylecols_for(Frame *f, int idx)
@@ -29,174 +29,233 @@ stylecols_for(Frame *f, int idx)
 }
 
 /*
- * styleat — return the style index that covers character position p,
- * given the frame's run-length encoded styles array.
- * Also sets *segend to the first position NOT covered by this style run.
+ * drawrange_impl — draw characters [p0, p1) in a single O(boxes+segments)
+ * pass, advancing a box cursor and a style-segment cursor in lockstep.
+ *
+ * forcesel=0: selection state is computed from f->p0/f->p1 per character.
+ * forcesel=1: the entire range is drawn with selection state issel_forced
+ *             (used by frdrawsel to apply a uniform highlight/unhighlight).
  */
-static int
-styleat(Frame *f, ulong p, ulong *segend)
+static Point
+drawrange_impl(Frame *f, Point pt, ulong p0, ulong p1, int forcesel, int issel_forced)
 {
-	int i;
-	ulong pos, len;
+	Frbox  *b;
+	int     bi;       /* index into f->box */
+	ulong   bp;       /* char position of f->box[bi] start */
+	int     si;       /* index into f->styles */
+	ulong   sp;       /* char position of f->styles[si] start */
+	ulong   seg_end;  /* char position of f->styles[si] end */
+	int     sidx;     /* current style index */
+	Image **sc;       /* current colour set */
+	Image  *back, *text;
+	ulong   p;        /* current drawing position */
+	ulong   next;     /* end of current atomic sub-span */
+	int     nr;       /* rune count of current box */
+	int     sub_nr;   /* rune count of current sub-span */
+	int     w, x;
+	char   *ptr;
+	Point   qt;
+	int     trimmed;
+	int     issel;
 
-	pos = 0;
-	for(i = 0; i < f->nstyles; i++){
-		len = f->styles[i*2 + 1];
-		if(p < pos + len){
-			*segend = pos + len;
-			return (int)f->styles[i*2];
-		}
-		pos += len;
+	if(p0 >= p1 || f->b == nil)
+		return pt;
+
+	/* Locate the starting box: skip boxes entirely before p0. */
+	bp = 0;
+	for(bi = 0; bi < f->nbox; bi++){
+		nr = (f->box[bi].nrune < 0) ? 1 : f->box[bi].nrune;
+		if(bp + (ulong)nr > p0)
+			break;
+		bp += nr;
 	}
-	/* past all explicit style runs → default style 0 */
-	*segend = f->nchars;
-	return 0;
+	if(bi == f->nbox)
+		return pt;
+
+	/*
+	 * Locate the starting style segment: skip segments entirely before p0.
+	 * When there are no styles, sc stays f->cols and seg_end is computed
+	 * as p1 each iteration (the whole range is one implicit segment).
+	 */
+	si   = 0;
+	sp   = 0;
+	sidx = 0;
+	if(f->nstyles > 0 && f->styles != nil){
+		for(; si < f->nstyles; si++){
+			ulong slen = f->styles[si*2+1];
+			if(sp + slen > p0)
+				break;
+			sp += slen;
+		}
+		sidx = (si < f->nstyles) ? (int)f->styles[si*2] : 0;
+	}
+	sc = stylecols_for(f, sidx);
+
+	p       = p0;
+	trimmed = 0;
+	while(p < p1 && bi < f->nbox){
+		b  = &f->box[bi];
+		nr = (b->nrune < 0) ? 1 : b->nrune;
+
+		/* End of current box and current style segment. */
+		ulong box_end = bp + (ulong)nr;
+		seg_end = (f->nstyles > 0 && f->styles != nil && si < f->nstyles)
+		        ? sp + f->styles[si*2+1] : p1;
+
+		/* Next selection boundary (only relevant when forcesel is off). */
+		ulong sel_next = p1;
+		if(!forcesel){
+			if(f->p0 > p && f->p0 < sel_next) sel_next = f->p0;
+			if(f->p1 > p && f->p1 < sel_next) sel_next = f->p1;
+		}
+
+		/* Atomic sub-span: advance to the first of these boundaries. */
+		next = box_end;
+		if(seg_end  < next) next = seg_end;
+		if(sel_next < next) next = sel_next;
+		if(p1       < next) next = p1;
+
+		/* Colours for this sub-span. */
+		issel = forcesel ? issel_forced : (p >= f->p0 && p < f->p1);
+		if(issel){ back = sc[HIGH]; text = sc[HTEXT]; }
+		else      { back = sc[BACK]; text = sc[TEXT];  }
+
+		/*
+		 * Line-wrap fill: call _frcklinewrap only at the start of a box.
+		 * Mid-box style/selection boundaries never cause wrapping because
+		 * boxes are pre-split by bxscan to fit on a single line.
+		 */
+		if(p == bp){
+			qt = pt;
+			_frcklinewrap(f, &pt, b);
+			if(pt.y > qt.y)
+				draw(f->b, Rect(qt.x, qt.y, f->r.max.x, pt.y), back, nil, qt);
+		}
+
+		/* Draw sub-span [p, next) of box bi. */
+		ptr = (char*)b->ptr;
+		if(p > bp)
+			ptr += nbytes(ptr, (int)(p - bp));
+		sub_nr  = (int)(next - p);
+		trimmed = (next < box_end);
+
+		if(b->nrune < 0 || sub_nr == b->nrune) w = b->wid;
+		else                                    w = stringnwidth(f->font, ptr, sub_nr);
+		x = pt.x + w;
+		if(x > f->r.max.x) x = f->r.max.x;
+
+		draw(f->b, Rect(pt.x, pt.y, x, pt.y + f->font->height), back, nil, pt);
+		if(b->nrune >= 0)
+			stringnbg(f->b, pt, text, ZP, f->font, ptr, sub_nr, back, ZP);
+		pt.x += w;
+		p = next;
+
+		/* Advance box cursor when the box is fully consumed. */
+		if(p == box_end){
+			bi++;
+			bp = box_end;
+		}
+
+		/* Advance style cursor when the segment is fully consumed. */
+		if(f->nstyles > 0 && f->styles != nil && p >= seg_end && si < f->nstyles){
+			sp = seg_end;
+			si++;
+			sidx = (si < f->nstyles) ? (int)f->styles[si*2] : 0;
+			sc   = stylecols_for(f, sidx);
+		}
+	}
+
+	/*
+	 * Trailing fill: if the last box drawn was a complete text box and the
+	 * NEXT box starts on a new line, fill the gap to the right margin.
+	 * Mirrors the identical check in the old frdrawsel0.
+	 */
+	if(!trimmed && p > p0 && bi > 0 && bi < f->nbox && f->box[bi-1].nrune > 0){
+		qt = pt;
+		_frcklinewrap(f, &pt, &f->box[bi]);
+		if(pt.y > qt.y)
+			draw(f->b, Rect(qt.x, qt.y, f->r.max.x, pt.y), back, nil, qt);
+	}
+
+	return pt;
 }
 
 /*
- * frdrawrange — draw characters [p0,p1) honouring both per-character styles
- * (f->styles / f->stylecols) and the current selection (f->p0, f->p1).
- * pt must be the screen point for p0.  Returns the screen point after p1.
- *
- * This is the single authoritative drawing primitive; frdrawsel and frredraw
- * are both implemented on top of it.
+ * frdrawrange — draw [p0, p1) honouring per-character styles and the current
+ * selection (f->p0, f->p1).  pt must be the screen point for p0.
+ * Returns the screen point after p1.
  */
 Point
 frdrawrange(Frame *f, Point pt, ulong p0, ulong p1)
 {
-	ulong p, segend, next;
-	Image **sc;
-	Image *back, *text;
-
-	p = p0;
-	while(p < p1){
-		/* find the end of the current style run */
-		if(f->nstyles > 0 && f->styles != nil){
-			int sidx = styleat(f, p, &segend);
-			if(segend > p1)
-				segend = p1;
-			sc = stylecols_for(f, sidx);
-		} else {
-			segend = p1;
-			sc = f->cols;
-		}
-
-		/* split further at selection boundaries */
-		while(p < segend){
-			next = segend;
-			if(f->p0 > p && f->p0 < next)
-				next = f->p0;
-			if(f->p1 > p && f->p1 < next)
-				next = f->p1;
-
-			if(p >= f->p0 && p < f->p1){
-				back = sc[HIGH];
-				text = sc[HTEXT];
-			} else {
-				back = sc[BACK];
-				text = sc[TEXT];
-			}
-			pt = frdrawsel0(f, pt, p, next, back, text);
-			p = next;
-		}
-	}
-	return pt;
+	return drawrange_impl(f, pt, p0, p1, 0, 0);
 }
 
+/*
+ * frdrawsel — draw [p0, p1) with selection state forced to issel for the
+ * entire range (used for mouse-drag selection highlighting).  Styles still
+ * apply; only the selection component is overridden.
+ */
 void
 frdrawsel(Frame *f, Point pt, ulong p0, ulong p1, int issel)
 {
-	ulong p, segend;
-	Image **sc;
-	Image *back, *text;
-
 	if(f->ticked)
 		frtick(f, frptofchar(f, f->p0), 0);
-
 	if(p0 == p1){
 		frtick(f, pt, issel);
 		return;
 	}
-
-	if(f->nstyles == 0 || f->styles == nil){
-		/* fast path: no per-character styles */
-		if(issel){
-			back = f->cols[HIGH];
-			text = f->cols[HTEXT];
-		} else {
-			back = f->cols[BACK];
-			text = f->cols[TEXT];
-		}
-		frdrawsel0(f, pt, p0, p1, back, text);
-		return;
-	}
-
-	/* style-aware: iterate style segments, apply issel uniformly within each */
-	p = p0;
-	while(p < p1){
-		int sidx = styleat(f, p, &segend);
-		if(segend > p1)
-			segend = p1;
-		sc = stylecols_for(f, sidx);
-		if(issel){
-			back = sc[HIGH];
-			text = sc[HTEXT];
-		} else {
-			back = sc[BACK];
-			text = sc[TEXT];
-		}
-		pt = frdrawsel0(f, pt, p, segend, back, text);
-		p = segend;
-	}
+	drawrange_impl(f, pt, p0, p1, 1, issel);
 }
 
+/*
+ * frdrawsel0 — draw [p0, p1) with explicit back/text colours, ignoring both
+ * styles and selection state.  Used by acme's xselect() for mouse-drag
+ * highlights that must use a caller-supplied colour regardless of style.
+ */
 Point
 frdrawsel0(Frame *f, Point pt, ulong p0, ulong p1, Image *back, Image *text)
 {
 	Frbox *b;
-	int nb, nr, w, x, trim;
-	Point qt;
-	uint p;
-	char *ptr;
+	int    nb, nr, w, x, trim;
+	Point  qt;
+	uint   p;
+	char  *ptr;
 
 	if(p0 > p1)
 		sysfatal("libframe: frdrawsel0 p0=%lud > p1=%lud", p0, p1);
 
-	p = 0;
-	b = f->box;
+	p    = 0;
+	b    = f->box;
 	trim = 0;
-	for(nb=0; nb<f->nbox && p<p1; nb++){
+	for(nb = 0; nb < f->nbox && p < p1; nb++){
 		nr = b->nrune;
 		if(nr < 0)
 			nr = 1;
-		if(p+nr <= p0)
+		if(p + (uint)nr <= p0)
 			goto Continue;
 		if(p >= p0){
 			qt = pt;
 			_frcklinewrap(f, &pt, b);
-			/* fill in the end of a wrapped line */
 			if(pt.y > qt.y)
 				draw(f->b, Rect(qt.x, qt.y, f->r.max.x, pt.y), back, nil, qt);
 		}
 		ptr = (char*)b->ptr;
-		if(p < p0){	/* beginning of region: advance into box */
-			ptr += nbytes(ptr, p0-p);
-			nr -= (p0-p);
-			p = p0;
+		if(p < p0){
+			ptr += nbytes(ptr, p0 - p);
+			nr  -= (p0 - p);
+			p    = p0;
 		}
 		trim = 0;
-		if(p+nr > p1){	/* end of region: trim box */
-			nr -= (p+nr)-p1;
+		if(p + (uint)nr > p1){
+			nr  -= (p + nr) - p1;
 			trim = 1;
 		}
-		if(b->nrune<0 || nr==b->nrune)
-			w = b->wid;
-		else
-			w = stringnwidth(f->font, ptr, nr);
-		x = pt.x+w;
-		if(x > f->r.max.x)
-			x = f->r.max.x;
-		draw(f->b, Rect(pt.x, pt.y, x, pt.y+f->font->height), back, nil, pt);
+		if(b->nrune < 0 || nr == b->nrune) w = b->wid;
+		else                               w = stringnwidth(f->font, ptr, nr);
+		x = pt.x + w;
+		if(x > f->r.max.x) x = f->r.max.x;
+		draw(f->b, Rect(pt.x, pt.y, x, pt.y + f->font->height), back, nil, pt);
 		if(b->nrune >= 0)
 			stringnbg(f->b, pt, text, ZP, f->font, ptr, nr, back, ZP);
 		pt.x += w;
@@ -204,8 +263,7 @@ frdrawsel0(Frame *f, Point pt, ulong p0, ulong p1, Image *back, Image *text)
 		b++;
 		p += nr;
 	}
-	/* if this is end of last plain text box on wrapped line, fill to end of line */
-	if(p1>p0 &&  b>f->box && b<f->box+f->nbox && b[-1].nrune>0 && !trim){
+	if(p1 > p0 && b > f->box && b < f->box + f->nbox && b[-1].nrune > 0 && !trim){
 		qt = pt;
 		_frcklinewrap(f, &pt, b);
 		if(pt.y > qt.y)
@@ -217,7 +275,7 @@ frdrawsel0(Frame *f, Point pt, ulong p0, ulong p1, Image *back, Image *text)
 void
 frredraw(Frame *f)
 {
-	int ticked;
+	int   ticked;
 	Point pt;
 
 	ticked = f->ticked;
@@ -238,11 +296,10 @@ _frtick(Frame *f, Point pt, int ticked)
 {
 	Rectangle r;
 
-	if(f->ticked==ticked || f->tick==0 || !ptinrect(pt, f->r))
+	if(f->ticked == ticked || f->tick == 0 || !ptinrect(pt, f->r))
 		return;
-	pt.x -= f->tickscale;	/* looks best just left of where requested */
-	r = Rect(pt.x, pt.y, pt.x+FRTICKW*f->tickscale, pt.y+f->font->height);
-	/* can go into left border but not right */
+	pt.x -= f->tickscale;
+	r = Rect(pt.x, pt.y, pt.x + FRTICKW*f->tickscale, pt.y + f->font->height);
 	if(r.max.x > f->r.max.x)
 		r.max.x = f->r.max.x;
 	if(ticked){
@@ -256,7 +313,7 @@ _frtick(Frame *f, Point pt, int ticked)
 void
 frtick(Frame *f, Point pt, int ticked)
 {
-	if(f->tickscale != scalesize(f->display, 1)) {
+	if(f->tickscale != scalesize(f->display, 1)){
 		if(f->ticked)
 			_frtick(f, pt, 0);
 		frinittick(f);
@@ -268,9 +325,9 @@ Point
 _frdraw(Frame *f, Point pt)
 {
 	Frbox *b;
-	int nb, n;
+	int    nb, n;
 
-	for(b=f->box,nb=0; nb<f->nbox; nb++, b++){
+	for(b = f->box, nb = 0; nb < f->nbox; nb++, b++){
 		_frcklinewrap0(f, &pt, b);
 		if(pt.y == f->r.max.y){
 			f->nchars -= _frstrlen(f, nb);
@@ -288,8 +345,8 @@ _frdraw(Frame *f, Point pt)
 			pt.x += b->wid;
 		}else{
 			if(b->bc == '\n'){
-				pt.x = f->r.min.x;
-				pt.y+=f->font->height;
+				pt.x  = f->r.min.x;
+				pt.y += f->font->height;
 			}else
 				pt.x += _frnewwid(f, pt, b);
 		}
@@ -302,7 +359,7 @@ _frstrlen(Frame *f, int nb)
 {
 	int n;
 
-	for(n=0; nb<f->nbox; nb++)
+	for(n = 0; nb < f->nbox; nb++)
 		n += NRUNE(&f->box[nb]);
 	return n;
 }

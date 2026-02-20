@@ -11,6 +11,7 @@ OFILES=\
 	frptofchar.$O\
 	frselect.$O\
 	frstr.$O\
+	frstyle.$O\
 	frutil.$O\
 
 HFILES=\

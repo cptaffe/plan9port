@@ -112,6 +112,7 @@ frdelete(Frame *f, ulong p0, ulong p1)
 		ppt0.x -= f->box[nn0].wid;
 	}
 	_frclean(f, ppt0, nn0, n0<f->nbox-1? n0+1 : n0);
+	frstyledelete(f, p0, p1);	/* keep style RLE in sync with box array */
 	if(f->p1 > p1)
 		f->p1 -= p1-p0;
 	else if(f->p1 > p0)

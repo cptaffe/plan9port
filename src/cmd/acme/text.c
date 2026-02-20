@@ -523,11 +523,8 @@ textdelete(Text *t, uint q0, uint q1, int tofile)
 			p0 = 0;
 		}else
 			p0 = q0 - t->org;
-		frdelete(&t->fr, p0, p1);
+		frdelete(&t->fr, p0, p1);	/* frstyledelete called internally */
 		textfill(t);
-		/* keep per-frame style cache in sync while p0/p1 are in scope */
-		if(t->what == Body && t->w != nil)
-			frstyledelete(&t->fr, p0, p1);
 	}
 	/* keep file-absolute style layers in sync */
 	if(t->what == Body && t->w != nil && t->w->nstyles > 0)
