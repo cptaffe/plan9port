@@ -155,15 +155,17 @@ xfidopen(Xfid *x)
 			break;
 		case QWstyle:
 			/*
-			 * Opening for write clears the window's styles in-memory.
-			 * Actual repaint (winframesync) is deferred to fid clunk so
-			 * that all writes in the open→close sequence are applied as
-			 * a single atomic update with one winframesync call.
+			 * Capture addr at open time.  If addr is non-{0,0}, the
+			 * flush (at clunk) will do a partial update; otherwise it
+			 * replaces the entire palette and run list atomically.
+			 * Repaint is always deferred to clunk so the whole
+			 * open→write→close is one atomic visual update.
 			 */
 			if((x->fcall.mode & 3) == OWRITE ||
 			   (x->fcall.mode & 3) == ORDWR){
-				winclearstyle(w);
-				x->f->styleopen = 1;
+				x->f->styleopen    = 1;
+				x->f->stylehasaddr = (w->addr.q0 != 0 || w->addr.q1 != 0);
+				x->f->styleaddr    = w->addr;
 			}
 			break;
 		case QWrdsel:
@@ -342,17 +344,14 @@ xfidclose(Xfid *x)
 			break;
 		case QWstyle:
 			if(x->f->styleopen){
-				/*
-				 * Parse accumulated "idx start end\n" data and
-				 * repaint once.  w->styles was already cleared at
-				 * open time; this makes the entire Apply atomic.
-				 */
-				xfidstyleflush(w, x->f->stylebuf, x->f->nstylebuf);
+				xfidstyleflush(w, x->f->stylebuf, x->f->nstylebuf,
+				               x->f->stylehasaddr, x->f->styleaddr);
 				free(x->f->stylebuf);
-				x->f->stylebuf  = nil;
-				x->f->nstylebuf = 0;
-				x->f->mstylebuf = 0;
-				x->f->styleopen = 0;
+				x->f->stylebuf     = nil;
+				x->f->nstylebuf    = 0;
+				x->f->mstylebuf    = 0;
+				x->f->styleopen    = 0;
+				x->f->stylehasaddr = 0;
 			}
 			break;
 		case QWrdsel:
@@ -975,6 +974,20 @@ out:
 		if(strncmp(p, "unveil", 6) == 0){	/* display keyboard input */
 			w->noecho = FALSE;
 			m = 6;
+		}else
+		if(strncmp(p, "styleinherit ", 13) == 0){	/* style insert inheritance */
+			pp = p+13;
+			m = 13;
+			if(strncmp(pp, "on", 2) == 0){
+				w->styleinherit = 1;
+				m += 2;
+			} else if(strncmp(pp, "off", 3) == 0){
+				w->styleinherit = 0;
+				m += 3;
+			} else {
+				err = Ebadctl;
+				break;
+			}
 		}else
 		{
 			err = Ebadctl;

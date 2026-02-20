@@ -51,7 +51,8 @@ typedef struct Rangeset Rangeset;
 typedef struct Reffont Reffont;
 typedef struct Row Row;
 typedef struct Runestr Runestr;
-typedef struct Style Style;
+typedef struct WinStyleEntry WinStyleEntry;
+typedef struct WinStyleRun WinStyleRun;
 typedef struct Text Text;
 typedef struct Timer Timer;
 typedef struct Window Window;
@@ -253,6 +254,34 @@ struct WinEditLog {
   int     closed;     /* window closing: wake readers with EOF */
 };
 
+/*
+ * WinStyleEntry — one entry in a per-window style palette.
+ * Index 0 is always "base" and seeds the frame's default colours.
+ */
+struct WinStyleEntry
+{
+	char  *name;       /* owned; "base" for index 0 */
+	char  *fontname;   /* owned font path, or nil */
+	ulong  fg, bg;     /* RGBA (0xRRGGBBFF); meaningful only if has_fg/has_bg */
+	uchar  has_fg;
+	uchar  has_bg;
+	uchar  bold;
+	uchar  italic;
+	uchar  underline;
+};
+
+/*
+ * WinStyleRun — one contiguous styled span in the body.
+ * Runs are file-absolute (not frame-relative), sorted by start,
+ * non-overlapping; gaps implicitly use palette index 0 (base).
+ */
+struct WinStyleRun
+{
+	ulong start;       /* file-absolute rune offset */
+	ulong len;         /* rune count */
+	int   paletteidx;  /* index into Window.wpalette */
+};
+
 struct Window {
   QLock lk;
   Ref ref;
@@ -298,12 +327,15 @@ struct Window {
   Rectangle tagtop;
   QLock editoutlk;
   /*
-   * Per-window body styling: a single file-absolute RLE layer.
-   * Flat {style_index, length} pairs; composition is done externally
-   * by acme-styles and written via the "style" ctl command.
+   * Per-window body styling: a named palette and a list of style runs.
+   * wpalette[0] is always "base" and seeds the frame's default colours.
+   * wruns are file-absolute, sorted, non-overlapping; gaps use base (idx 0).
    */
-  ulong *styles;
-  int    nstyles;
+  WinStyleEntry *wpalette;
+  int            nwpalette;
+  WinStyleRun   *wruns;
+  int            nwruns;
+  int            styleinherit; /* 1=inserted text inherits left-neighbour style */
   WinEditLog editlog; /* per-window body edit notification log */
 };
 
@@ -426,10 +458,12 @@ struct Fid {
   vlong logoff; // for putlog
 
   /* QWstyle write accumulation */
-  int   styleopen;	/* 1 if opened for write (flush at clunk) */
-  char *stylebuf;	/* accumulated write data */
-  int   nstylebuf;	/* bytes used */
-  int   mstylebuf;	/* bytes allocated */
+  int   styleopen;     /* 1 if opened for OWRITE/ORDWR */
+  int   stylehasaddr;  /* addr was non-zero when style file was opened */
+  Range styleaddr;     /* addr captured at open time (for partial updates) */
+  char *stylebuf;      /* accumulated write data */
+  int   nstylebuf;     /* bytes used */
+  int   mstylebuf;     /* bytes allocated */
 };
 
 struct Xfid {
@@ -580,18 +614,7 @@ char *fontnames[2];
 Image *tagcols[NCOL];
 Image *textcols[NCOL];
 
-/*
- * Style — one entry in the global style table loaded from the styles file.
- * Index 0 is always the "default" entry and seeds the frame's cols[].
- */
-struct Style
-{
-	char	*name;		/* e.g. "comment", "keyword" */
-	Image	*cols[NCOL];	/* the five colour images for this style */
-};
-
-Style *styles; /* global style table (index 0 = default) */
-int nstyles;
+/* no global style table: each window carries its own palette (WinStyleEntry) */
 
 extern char wdir[]; /* must use extern because no dimension given */
 int editing;

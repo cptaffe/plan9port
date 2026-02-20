@@ -13,175 +13,155 @@
 #include "fns.h"
 
 /*
- * loadstylefile — parse a style file and populate the global styles table.
- *
- * File format (lines beginning with '#' are ignored):
- *
- *   default  <back> <high> <border> <text> <htext>     (5 colour fields)
- *   <name>   <back> <high> <text> <htext>               (4 colour fields)
- *
- * Each colour value is a 32-bit RGBA hex literal, e.g. 0xFFFFFFFF.
- * The "default" entry (index 0) replaces the hard-coded colours in Acme.
- *
- * Returns 1 on success, 0 on failure.
+ * Color image cache.  Avoids repeated allocimage calls for the same RGBA value.
+ * The cache persists for the lifetime of the process; handles remain valid as
+ * long as the display connection is live.
  */
+typedef struct ColorEnt ColorEnt;
+struct ColorEnt { ulong rgba; Image *img; };
+static ColorEnt *imgcache;
+static int nimgcache, mimgcache;
 
 static Image*
 colorimage(ulong rgba)
 {
-	return allocimage(display, Rect(0,0,1,1), screen->chan, 1, rgba);
+	int i;
+	Image *img;
+	for(i = 0; i < nimgcache; i++)
+		if(imgcache[i].rgba == rgba)
+			return imgcache[i].img;
+	img = allocimage(display, Rect(0,0,1,1), screen->chan, 1, rgba);
+	if(img == nil)
+		return nil;
+	if(nimgcache >= mimgcache){
+		mimgcache = mimgcache ? mimgcache*2 : 32;
+		imgcache  = erealloc(imgcache, mimgcache * sizeof(ColorEnt));
+	}
+	imgcache[nimgcache].rgba = rgba;
+	imgcache[nimgcache].img  = img;
+	nimgcache++;
+	return img;
 }
 
-int
-loadstylefile(char *path)
+/*
+ * parsecolor — "#rrggbb" → 0xRRGGBBFF (RGBA, fully opaque).
+ * Returns 1 on success, 0 if the string is not a valid hex color.
+ */
+static int
+parsecolor(char *s, ulong *out)
 {
-	int fd, nlines, i;
-	char *data, *p, *q, *end;
-	long n;
-	Style *newstyles, *s;
-	Dir *d;
-
-	fd = open(path, OREAD);
-	if(fd < 0)
+	ulong v;
+	char *ep;
+	if(*s != '#')
 		return 0;
-
-	d = dirfstat(fd);
-	if(d == nil){
-		close(fd);
+	v = strtoul(s+1, &ep, 16);
+	if(ep == s+1 || ep-(s+1) != 6)
 		return 0;
-	}
-	n = d->length;
-	free(d);
-
-	data = malloc(n+1);
-	if(data == nil){
-		close(fd);
-		return 0;
-	}
-	if(readn(fd, data, n) != n){
-		free(data);
-		close(fd);
-		return 0;
-	}
-	close(fd);
-	data[n] = '\0';
-
-	/* count non-comment, non-empty lines to size the array */
-	nlines = 0;
-	for(p = data; *p; ){
-		q = strchr(p, '\n');
-		if(q == nil)
-			q = p + strlen(p);
-		/* skip leading whitespace */
-		while(p < q && (*p == ' ' || *p == '\t'))
-			p++;
-		if(p < q && *p != '#')
-			nlines++;
-		p = (*q == '\n') ? q+1 : q;
-	}
-
-	if(nlines == 0){
-		free(data);
-		return 0;
-	}
-
-	newstyles = emalloc(nlines * sizeof(Style));
-	memset(newstyles, 0, nlines * sizeof(Style));
-
-	i = 0;
-	end = data + n;
-	p = data;
-	while(p < end && i < nlines){
-		/* find end of line */
-		q = memchr(p, '\n', end - p);
-		if(q == nil)
-			q = end;
-		*q = '\0';
-
-		/* skip leading whitespace */
-		char *line = p;
-		while(*line == ' ' || *line == '\t')
-			line++;
-		p = q + 1;
-
-		/* skip blank lines and comments */
-		if(*line == '\0' || *line == '#')
-			continue;
-
-		s = &newstyles[i];
-
-		/* parse name */
-		char *tok = line;
-		char *sp = strpbrk(tok, " \t");
-		if(sp == nil)
-			continue;	/* no colour fields */
-		*sp = '\0';
-		s->name = estrdup(tok);
-		tok = sp + 1;
-		while(*tok == ' ' || *tok == '\t')
-			tok++;
-
-		/*
-		 * Parse colour fields.
-		 * "default" has 5 fields: back high border text htext
-		 * All other entries have 4 fields: back high text htext
-		 */
-		int isdefault = (strcmp(s->name, "default") == 0);
-		int nfields   = isdefault ? 5 : 4;
-		ulong vals[5];
-		int f;
-		for(f = 0; f < nfields; f++){
-			while(*tok == ' ' || *tok == '\t')
-				tok++;
-			if(*tok == '\0')
-				break;
-			char *ep;
-			vals[f] = strtoul(tok, &ep, 0);
-			tok = ep;
-		}
-		if(f < nfields)
-			continue;	/* malformed line */
-
-		if(isdefault){
-			s->cols[BACK]  = colorimage(vals[0]);
-			s->cols[HIGH]  = colorimage(vals[1]);
-			s->cols[BORD]  = colorimage(vals[2]);
-			s->cols[TEXT]  = colorimage(vals[3]);
-			s->cols[HTEXT] = colorimage(vals[4]);
-		} else {
-			s->cols[BACK]  = colorimage(vals[0]);
-			s->cols[HIGH]  = colorimage(vals[1]);
-			s->cols[BORD]  = nil;	/* inherit from default */
-			s->cols[TEXT]  = colorimage(vals[2]);
-			s->cols[HTEXT] = colorimage(vals[3]);
-		}
-
-		i++;
-	}
-	free(data);
-
-	/* Free old table */
-	if(styles != nil){
-		for(i = 0; i < nstyles; i++)
-			free(styles[i].name);
-		free(styles);
-	}
-
-	styles  = newstyles;
-	nstyles = i;
+	*out = (v << 8) | 0xFF;
 	return 1;
 }
 
+/*
+ * parseproperty — parse one palette property token into an entry.
+ * Handles: bold, italic, underline, font=<path>, fg=#rrggbb, bg=#rrggbb.
+ */
+static void
+parseproperty(WinStyleEntry *e, char *tok)
+{
+	ulong v;
+	if(strcmp(tok, "bold") == 0)      { e->bold = 1; return; }
+	if(strcmp(tok, "italic") == 0)    { e->italic = 1; return; }
+	if(strcmp(tok, "underline") == 0) { e->underline = 1; return; }
+	if(strncmp(tok, "fg=", 3) == 0){
+		if(parsecolor(tok+3, &v)){ e->fg = v; e->has_fg = 1; }
+		return;
+	}
+	if(strncmp(tok, "bg=", 3) == 0){
+		if(parsecolor(tok+3, &v)){ e->bg = v; e->has_bg = 1; }
+		return;
+	}
+	if(strncmp(tok, "font=", 5) == 0){
+		free(e->fontname);
+		e->fontname = estrdup(tok+5);
+		return;
+	}
+}
 
+/* freeentry — free owned fields of a WinStyleEntry. */
+static void
+freeentry(WinStyleEntry *e)
+{
+	free(e->name);
+	free(e->fontname);
+	e->name    = nil;
+	e->fontname = nil;
+}
 
 /*
- * winframesync — apply the window's single style layer to the frame and repaint.
+ * winclearstyle — free all per-window palette and run data.
+ */
+void
+winclearstyle(Window *w)
+{
+	int i;
+	for(i = 0; i < w->nwpalette; i++)
+		freeentry(&w->wpalette[i]);
+	free(w->wpalette);
+	w->wpalette  = nil;
+	w->nwpalette = 0;
+	free(w->wruns);
+	w->wruns  = nil;
+	w->nwruns = 0;
+}
+
+/* findpalette — find a palette entry by name; return index or -1. */
+static int
+findpalette(WinStyleEntry *pal, int npal, char *name)
+{
+	int i;
+	for(i = 0; i < npal; i++)
+		if(pal[i].name != nil && strcmp(pal[i].name, name) == 0)
+			return i;
+	return -1;
+}
+
+/*
+ * resolvecolors — compute effective BACK and TEXT Image* for palette index idx,
+ * falling back to wpalette[0] (base) then to the frame's default colours.
+ */
+static void
+resolvecolors(Window *w, int idx, Frame *f, Image **back, Image **text)
+{
+	WinStyleEntry *e    = &w->wpalette[idx];
+	WinStyleEntry *base = &w->wpalette[0];
+
+	/* BACK: entry.bg → base.bg → frame default */
+	if(e->has_bg)
+		*back = colorimage(e->bg);
+	else if(idx > 0 && base->has_bg)
+		*back = colorimage(base->bg);
+	else
+		*back = f->cols[BACK];
+	if(*back == nil)
+		*back = f->cols[BACK];
+
+	/* TEXT: entry.fg → base.fg → frame default */
+	if(e->has_fg)
+		*text = colorimage(e->fg);
+	else if(idx > 0 && base->has_fg)
+		*text = colorimage(base->fg);
+	else
+		*text = f->cols[TEXT];
+	if(*text == nil)
+		*text = f->cols[TEXT];
+}
+
+/*
+ * winframesync — apply the window's palette and runs to the frame, then repaint.
  *
- * w->styles/w->nstyles is a file-absolute {index, length} RLE.  We intersect
- * it with the visible window [org, org+nchars) to produce a frame-relative
- * RLE which is handed to frsetstyles, then repaint.
- *
- * Call after any style change, after a frame reinit, or when t->org changes.
+ * Converts the named palette to the integer-indexed color table that frsetstyles
+ * expects, intersects wruns with the visible range, builds a frame-relative RLE,
+ * and calls frsetstyles + frredraw.
  */
 void
 winframesync(Window *w)
@@ -190,77 +170,76 @@ winframesync(Window *w)
 	Text *t;
 	Image **sc;
 	ulong *frstyles, org, frnchars;
-	int nfrstyles, i, j;
+	int nfrstyles, i;
 	ulong k;
 
-	t = &w->body;
-	f = &t->fr;
-	org      = t->org;
+	t        = &w->body;
+	f        = &t->fr;
+	org      = (ulong)t->org;
 	frnchars = (ulong)f->nchars;
 
-	if(nstyles == 0 || w->nstyles == 0){
+	if(w->nwpalette == 0){
 		frsetstyles(f, 0, nil, 0, nil);
 		frredraw(f);
 		flushimage(display, 1);
 		return;
 	}
 
-	/* Build colour table: nstyles × NCOL */
-	sc = emalloc(nstyles * NCOL * sizeof(Image*));
-	for(i = 0; i < nstyles; i++)
-		for(j = 0; j < NCOL; j++){
-			Image *img = styles[i].cols[j];
-			if(img == nil)
-				img = f->cols[j];
-			sc[i*NCOL+j] = img;
-		}
+	/* Build color table: nwpalette × NCOL. */
+	sc = emalloc(w->nwpalette * NCOL * sizeof(Image*));
+	for(i = 0; i < w->nwpalette; i++){
+		Image *back, *text;
+		resolvecolors(w, i, f, &back, &text);
+		sc[i*NCOL + BACK]  = back;
+		sc[i*NCOL + HIGH]  = f->cols[HIGH];   /* selection always uses system color */
+		sc[i*NCOL + BORD]  = f->cols[BORD];
+		sc[i*NCOL + TEXT]  = text;
+		sc[i*NCOL + HTEXT] = text;            /* keep styled fg on selection */
+	}
 
-	/* Expand file-absolute RLE into a per-character style index array. */
+	if(frnchars == 0 || w->nwruns == 0){
+		frsetstyles(f, w->nwpalette, sc, 0, nil);
+		free(sc);
+		frredraw(f);
+		flushimage(display, 1);
+		return;
+	}
+
+	/* Expand runs into a per-character palette-index array for [org, org+frnchars). */
 	ulong *composed = emalloc(frnchars * sizeof(ulong));
-	memset(composed, 0, frnchars * sizeof(ulong));
-
-	ulong filepos = 0;
-	for(i = 0; i < w->nstyles; i++){
-		ulong sidx    = w->styles[i*2];
-		ulong slen    = w->styles[i*2+1];
-		ulong seg_end = filepos + slen;
-		if(sidx != 0){
-			ulong from = filepos < org          ? org          : filepos;
-			ulong to   = seg_end < org+frnchars ? seg_end      : org+frnchars;
-			if(from < to){
-				for(k = from - org; k < to - org; k++)
-					composed[k] = sidx;
-			}
-		}
-		filepos = seg_end;
-		if(filepos >= org + frnchars)
+	memset(composed, 0, frnchars * sizeof(ulong)); /* 0 = base */
+	for(i = 0; i < w->nwruns; i++){
+		WinStyleRun *r = &w->wruns[i];
+		ulong rs   = r->start;
+		ulong re   = r->start + r->len;
+		ulong from = rs < org          ? org          : rs;
+		ulong to   = re > org+frnchars ? org+frnchars : re;
+		if(from < to)
+			for(k = from-org; k < to-org; k++)
+				composed[k] = (ulong)r->paletteidx;
+		if(rs > org+frnchars)
 			break;
 	}
 
-	/* RLE-compress composed[] into frstyles. */
-	frstyles  = emalloc(2 * (frnchars + 1) * sizeof(ulong));
+	/* RLE-compress composed[] → frstyles. */
+	frstyles  = emalloc(2*(frnchars+1)*sizeof(ulong));
 	nfrstyles = 0;
-	if(frnchars > 0){
-		ulong cur_idx = composed[0];
-		ulong cur_len = 1;
+	{
+		ulong cur = composed[0], len = 1;
 		for(k = 1; k < frnchars; k++){
-			if(composed[k] == cur_idx){
-				cur_len++;
-			} else {
-				frstyles[nfrstyles*2]   = cur_idx;
-				frstyles[nfrstyles*2+1] = cur_len;
-				nfrstyles++;
-				cur_idx = composed[k];
-				cur_len = 1;
-			}
+			if(composed[k] == cur){ len++; continue; }
+			frstyles[nfrstyles*2]   = cur;
+			frstyles[nfrstyles*2+1] = len;
+			nfrstyles++;
+			cur = composed[k]; len = 1;
 		}
-		frstyles[nfrstyles*2]   = cur_idx;
-		frstyles[nfrstyles*2+1] = cur_len;
+		frstyles[nfrstyles*2]   = cur;
+		frstyles[nfrstyles*2+1] = len;
 		nfrstyles++;
 	}
 	free(composed);
 
-	frsetstyles(f, nstyles, sc, nfrstyles, frstyles);
+	frsetstyles(f, w->nwpalette, sc, nfrstyles, frstyles);
 	free(sc);
 	free(frstyles);
 	frredraw(f);
@@ -268,243 +247,444 @@ winframesync(Window *w)
 }
 
 /*
- * winstyleinsert — keep w->styles in sync when n runes are inserted at q0.
+ * winstyleinsert — adjust runs when n runes are inserted at q0.
  *
- * Widens the segment that covers q0 by n so that all absolute offsets after
- * q0 remain correct.  Also pokes the frame-level cache (f->styles) so
- * styleat() returns correct values immediately without a full winframesync.
+ * styleinherit=1: the run containing q0 (if any) is extended so inserted
+ *                 text inherits the left neighbour's style.
+ * styleinherit=0: the run is split; the inserted gap implicitly uses base.
  */
 void
 winstyleinsert(Window *w, uint q0, uint n)
 {
-	Text *t;
-	Frame *f;
 	int i;
-	ulong pos;
+	WinStyleRun *r;
 
-	if(n == 0 || w->nstyles == 0)
+	if(n == 0 || w->nwruns == 0)
 		return;
 
-	pos = 0;
-	for(i = 0; i < w->nstyles; i++){
-		if(q0 <= pos + w->styles[i*2+1]){
-			w->styles[i*2+1] += n;
-			break;
+	for(i = 0; i < w->nwruns; i++){
+		r = &w->wruns[i];
+		if((ulong)q0 < r->start){
+			r->start += n;
+		} else if((ulong)q0 < r->start + r->len){
+			/* q0 is inside this run */
+			if(w->styleinherit){
+				r->len += n;                    /* extend: keep same style */
+			} else {
+				ulong left  = (ulong)q0 - r->start;
+				ulong right = r->len - left;
+				int   idx   = r->paletteidx;
+				if(left == 0){
+					r->start += n;             /* gap before: just shift */
+				} else if(right == 0){
+					/* gap after: nothing to do */
+				} else {
+					/* real split: shrink left, insert right-part run */
+					r->len = left;
+					w->wruns = erealloc(w->wruns, (w->nwruns+1)*sizeof(WinStyleRun));
+					r = &w->wruns[i];          /* re-fetch after realloc */
+					memmove(&w->wruns[i+2], &w->wruns[i+1],
+					        (w->nwruns-i-1)*sizeof(WinStyleRun));
+					w->wruns[i+1].start      = (ulong)q0 + n;
+					w->wruns[i+1].len        = right;
+					w->wruns[i+1].paletteidx = idx;
+					w->nwruns++;
+					i++;                       /* skip newly inserted run */
+				}
+			}
 		}
-		pos += w->styles[i*2+1];
+		/* q0 exactly at run end: the gap goes after; next run's start shifts */
 	}
-
-	t = &w->body;
-	f = &t->fr;
-	if(f->nstyles > 0 && (ulong)q0 >= t->org && (ulong)q0 < t->org + (ulong)f->nchars)
-		frstyleinsert(f, (ulong)(q0 - t->org), (ulong)n);
 }
 
 /*
- * winstyledelete — keep w->styles in sync when runes [q0,q1) are removed.
- *
- * Shrinks/removes segments that overlap [q0,q1).  Segments after q1 are
- * implicitly shifted because their absolute position is the cumulative sum
- * of preceding lengths.
+ * winstyledelete — adjust runs when runes [q0, q1) are deleted.
  */
 void
 winstyledelete(Window *w, uint q0, uint q1)
 {
-	int i, new_nsegs;
-	ulong pos, seg_end, overlap;
+	WinStyleRun *out;
+	int nout, i;
+	ulong del, dq0, dq1;
 
-	if(q0 >= q1 || w->nstyles == 0)
+	if(q0 >= q1 || w->nwruns == 0)
 		return;
 
-	pos       = 0;
-	new_nsegs = 0;
-	for(i = 0; i < w->nstyles; i++){
-		ulong len = w->styles[i*2+1];
-		seg_end   = pos + len;
-		ulong ov0 = pos     > (ulong)q0 ? pos     : (ulong)q0;
-		ulong ov1 = seg_end < (ulong)q1 ? seg_end : (ulong)q1;
-		overlap   = ov1 > ov0 ? ov1 - ov0 : 0;
-		if(len - overlap > 0){
-			w->styles[new_nsegs*2]   = w->styles[i*2];
-			w->styles[new_nsegs*2+1] = len - overlap;
-			new_nsegs++;
+	del = (ulong)(q1 - q0);
+	dq0 = (ulong)q0;
+	dq1 = (ulong)q1;
+	out  = emalloc(w->nwruns * 2 * sizeof(WinStyleRun));
+	nout = 0;
+
+	for(i = 0; i < w->nwruns; i++){
+		WinStyleRun *r = &w->wruns[i];
+		ulong rs = r->start, re = r->start + r->len;
+
+		if(re <= dq0){
+			out[nout++] = *r;                  /* entirely before: keep */
+		} else if(rs >= dq1){
+			out[nout]        = *r;             /* entirely after: shift */
+			out[nout].start -= del;
+			nout++;
+		} else {
+			/* overlaps deletion */
+			ulong left_end   = rs < dq0 ? dq0 : rs;  /* clip left part */
+			ulong right_start = dq1;
+			/* left part [rs, min(dq0, re)) */
+			if(rs < dq0 && dq0 > rs){
+				out[nout].start      = rs;
+				out[nout].len        = dq0 - rs;
+				out[nout].paletteidx = r->paletteidx;
+				nout++;
+			}
+			/* right part [max(rs, dq1), re) shifted left */
+			if(re > dq1){
+				ulong clip_s = right_start < rs ? rs : right_start;
+				out[nout].start      = clip_s - del;
+				out[nout].len        = re - clip_s;
+				out[nout].paletteidx = r->paletteidx;
+				nout++;
+			}
+			USED(left_end);
 		}
-		pos = seg_end;
 	}
-	w->nstyles = new_nsegs;
+	free(w->wruns);
+	w->wruns  = out;
+	w->nwruns = nout;
 }
 
 /*
- * winclearstyle — free all style data for w.
- */
-void
-winclearstyle(Window *w)
-{
-	free(w->styles);
-	w->styles  = nil;
-	w->nstyles = 0;
-}
-
-/*
- * winreplacestyles — O(N) bulk replacement of all style data from sorted triples.
- *
- *   triples  — flat array of (index, start, length) tuples, sorted by start,
- *              non-overlapping.  Gaps between entries are filled with style 0.
- *   ntriples — number of tuples (total ulongs = 3*ntriples)
- *
- * Called from xfidstyleflush when a QWstyle fid is clunked after writing.
- */
-static void
-winreplacestyles(Window *w, ulong *triples, int ntriples)
-{
-	ulong *newst;
-	int nres, i;
-	ulong pos, idx, start, len;
-
-	if(ntriples == 0){
-		winclearstyle(w);
-		return;
-	}
-
-	/* Worst case: gap before every entry + each entry itself = 2·N segments. */
-	newst = emalloc(2 * (2 * ntriples + 1) * sizeof(ulong));
-	nres = 0;
-	pos  = 0;
-
-	for(i = 0; i < ntriples; i++){
-		idx   = triples[i*3];
-		start = triples[i*3 + 1];
-		len   = triples[i*3 + 2];
-
-		if(start > pos){
-			/* Gap: fill with style 0. */
-			newst[nres*2]   = 0;
-			newst[nres*2+1] = start - pos;
-			nres++;
-		}
-		if(len > 0){
-			newst[nres*2]   = idx;
-			newst[nres*2+1] = len;
-			nres++;
-		}
-		pos = start + len;
-	}
-
-	free(w->styles);
-	w->styles  = newst;
-	w->nstyles = nres;
-}
-
-
-/*
- * winstyleprint — render w->styles as "idx start end\n" text.
- *
- * The window lock must be held by the caller.
- * Caller must free the returned string.
+ * winstyleprint — serialise the window's palette and runs as a style file.
+ * Returns a malloc'd NUL-terminated string.  Caller must free.
  */
 char*
 winstyleprint(Window *w)
 {
 	char *out;
-	int nout, mout, n;
-	ulong pos, i;
-	char line[64];
+	int nout, mout, n, i;
+	char line[512];
+	WinStyleEntry *e;
 
-	mout = 64;
+	mout = 256;
 	out  = emalloc(mout);
 	nout = 0;
-	pos  = 0;
 
-	for(i = 0; i < (ulong)w->nstyles; i++){
-		ulong idx = w->styles[i*2];
-		ulong len = w->styles[i*2+1];
-		if(idx != 0){
-			n = snprint(line, sizeof line, "%lud %lud %lud\n",
-				idx, pos, pos + len);
-			if(nout + n + 1 > mout){
-				mout = nout + n + 256;
-				out  = erealloc(out, mout);
-			}
-			memmove(out + nout, line, n);
-			nout += n;
-		}
-		pos += len;
+	/* Palette lines */
+	for(i = 0; i < w->nwpalette; i++){
+		e = &w->wpalette[i];
+		if(e->name == nil)
+			continue;
+		n = snprint(line, sizeof line, ":%s", e->name);
+		if(e->fontname)
+			n += snprint(line+n, sizeof line - n, " font=%s", e->fontname);
+		if(e->has_fg)
+			n += snprint(line+n, sizeof line - n,
+			             " fg=#%06lux", (e->fg >> 8) & 0xFFFFFFUL);
+		if(e->has_bg)
+			n += snprint(line+n, sizeof line - n,
+			             " bg=#%06lux", (e->bg >> 8) & 0xFFFFFFUL);
+		if(e->bold)      n += snprint(line+n, sizeof line - n, " bold");
+		if(e->italic)    n += snprint(line+n, sizeof line - n, " italic");
+		if(e->underline) n += snprint(line+n, sizeof line - n, " underline");
+		line[n++] = '\n';
+		while(nout + n + 1 > mout){ mout *= 2; out = erealloc(out, mout); }
+		memmove(out + nout, line, n);
+		nout += n;
 	}
+
+	/* Run lines */
+	for(i = 0; i < w->nwruns; i++){
+		WinStyleRun *r = &w->wruns[i];
+		char *name = "base";
+		if(r->paletteidx >= 0 && r->paletteidx < w->nwpalette
+		   && w->wpalette[r->paletteidx].name != nil)
+			name = w->wpalette[r->paletteidx].name;
+		n = snprint(line, sizeof line, "%lud %lud %s\n", r->start, r->len, name);
+		while(nout + n + 1 > mout){ mout *= 2; out = erealloc(out, mout); }
+		memmove(out + nout, line, n);
+		nout += n;
+	}
+
 	out[nout] = '\0';
 	return out;
 }
 
 /*
- * xfidstyleflush — parse accumulated "idx start end\n" lines, replace
- * w->styles atomically, and repaint.
+ * Raw parsed run (name not yet resolved to palette index).
+ */
+typedef struct RawRun RawRun;
+struct RawRun {
+	ulong  start;
+	ulong  len;
+	char  *name;  /* owned; freed after resolution */
+};
+
+/*
+ * winparsestyle — parse style file content and apply to w.
  *
- * Called from xfidclose when a QWstyle fid opened for write is clunked.
- * The window lock is held by the caller.
- *
- * Format: each line is "<index> <start_rune> <end_rune>\n" where end is
- * exclusive.  Lines where end <= start or idx == 0 are silently ignored.
- * Entries must be in ascending start order (the compositor already sorts).
+ * hasaddr=0: full replacement — existing palette and runs are discarded and
+ *            replaced by the content of buf.
+ * hasaddr=1: partial update — palette entries are merged by name (incoming
+ *            entries replace or extend the existing palette), and runs in
+ *            [addr.q0, addr.q1) are replaced; run offsets in buf are
+ *            relative to addr.q0.
  */
 void
-xfidstyleflush(Window *w, char *buf, int nbuf)
+winparsestyle(Window *w, char *buf, int nbuf, int hasaddr, Range addr)
 {
-	ulong *triples;
-	int ntriples, mtriples;
-	char *p, *e, *ep, *nl;
-	ulong idx, start, end;
+	char *p, *e, *nl, *lend;
+	int i, j;
 
-	triples  = nil;
-	ntriples = 0;
-	mtriples = 0;
+	/* Temporary storage for parsed palette entries */
+	WinStyleEntry *newpal  = nil;
+	int            newpalcap = 0, nnewpal = 0;
 
+	/* Temporary storage for parsed runs (names not yet resolved) */
+	RawRun *rawruns  = nil;
+	int     rawruncap = 0, nrawruns = 0;
+
+	/* --- First pass: parse all palette and run lines from buf --- */
 	p = buf;
-	e = p + nbuf;
-
+	e = buf + nbuf;
 	while(p < e){
-		nl = memchr(p, '\n', e - p);
+		nl   = memchr(p, '\n', e - p);
+		lend = nl ? nl : e;
 
-		/* skip whitespace / comments */
-		while(p < (nl ? nl : e) && (*p == ' ' || *p == '\t'))
+		/* skip leading whitespace */
+		while(p < lend && (*p == ' ' || *p == '\t'))
 			p++;
-		if(p >= e || (nl && p >= nl)){
-			p = nl ? nl + 1 : e;
+		if(p >= lend || *p == '#'){
+			p = nl ? nl+1 : e;
 			continue;
 		}
 
-		/* idx */
-		idx = strtoul(p, &ep, 10);
-		if(ep == p){ p = nl ? nl + 1 : e; continue; }
-		p = ep;
+		if(*p == ':'){
+			/* --- palette line: ":name [prop ...]" --- */
+			p++;   /* skip ':' */
+			/* parse name */
+			char *ns = p;
+			while(p < lend && *p != ' ' && *p != '\t')
+				p++;
+			if(p == ns){ p = nl ? nl+1 : e; continue; }
+			char savec = *p; *p = '\0';
+			char *palname = estrdup(ns);
+			*p = savec;
 
-		/* start */
-		while(p < (nl ? nl : e) && (*p == ' ' || *p == '\t')) p++;
-		start = strtoul(p, &ep, 10);
-		if(ep == p){ p = nl ? nl + 1 : e; continue; }
-		p = ep;
-
-		/* end */
-		while(p < (nl ? nl : e) && (*p == ' ' || *p == '\t')) p++;
-		end = strtoul(p, &ep, 10);
-		if(ep == p){ p = nl ? nl + 1 : e; continue; }
-
-		if(end > start && idx > 0){
-			if(ntriples >= mtriples){
-				mtriples = mtriples ? mtriples * 2 : 64;
-				triples  = erealloc(triples,
-					3 * mtriples * sizeof(ulong));
+			/* allocate new entry */
+			if(nnewpal >= newpalcap){
+				newpalcap = newpalcap ? newpalcap*2 : 8;
+				newpal = erealloc(newpal, newpalcap * sizeof(WinStyleEntry));
 			}
-			triples[ntriples*3]     = idx;
-			triples[ntriples*3 + 1] = start;
-			triples[ntriples*3 + 2] = end - start; /* len for winreplacestyles */
-			ntriples++;
-		}
+			WinStyleEntry *ne = &newpal[nnewpal++];
+			memset(ne, 0, sizeof *ne);
+			ne->name = palname;
 
-		p = nl ? nl + 1 : e;
+			/* parse property tokens to end of line */
+			while(p < lend){
+				while(p < lend && (*p == ' ' || *p == '\t'))
+					p++;
+				if(p >= lend) break;
+				char *ts = p;
+				while(p < lend && *p != ' ' && *p != '\t')
+					p++;
+				char save2 = *p; *p = '\0';
+				parseproperty(ne, ts);
+				*p = save2;
+			}
+		} else {
+			/* --- run line: "start length name" --- */
+			char *ep;
+			ulong start = strtoul(p, &ep, 10);
+			if(ep == p){ p = nl ? nl+1 : e; continue; }
+			p = ep;
+			while(p < lend && (*p == ' ' || *p == '\t')) p++;
+			ulong len = strtoul(p, &ep, 10);
+			if(ep == p){ p = nl ? nl+1 : e; continue; }
+			p = ep;
+			while(p < lend && (*p == ' ' || *p == '\t')) p++;
+
+			char *ns = p;
+			while(p < lend && *p != ' ' && *p != '\t')
+				p++;
+			if(p == ns){ p = nl ? nl+1 : e; continue; }
+			char save3 = *p; *p = '\0';
+			char *rname = estrdup(ns);
+			*p = save3;
+
+			if(len > 0){
+				if(nrawruns >= rawruncap){
+					rawruncap = rawruncap ? rawruncap*2 : 32;
+					rawruns = erealloc(rawruns, rawruncap * sizeof(RawRun));
+				}
+				rawruns[nrawruns].start = start;
+				rawruns[nrawruns].len   = len;
+				rawruns[nrawruns].name  = rname;
+				nrawruns++;
+			} else {
+				free(rname);
+			}
+		}
+		p = nl ? nl+1 : e;
 	}
 
-	winreplacestyles(w, triples, ntriples);
-	free(triples);
-	winframesync(w);
+	/* --- Apply palette --- */
+	if(!hasaddr){
+		/* Full replacement: discard existing palette and use newpal. */
+		winclearstyle(w);
+		w->wpalette  = newpal;
+		w->nwpalette = nnewpal;
+		newpal  = nil;
+		nnewpal = 0;
+	} else {
+		/* Partial update: merge new entries into existing palette by name. */
+		for(i = 0; i < nnewpal; i++){
+			int idx = findpalette(w->wpalette, w->nwpalette, newpal[i].name);
+			if(idx >= 0){
+				freeentry(&w->wpalette[idx]);
+				w->wpalette[idx] = newpal[i];
+			} else {
+				w->wpalette = erealloc(w->wpalette,
+				    (w->nwpalette+1)*sizeof(WinStyleEntry));
+				w->wpalette[w->nwpalette++] = newpal[i];
+			}
+			newpal[i].name    = nil; /* ownership transferred */
+			newpal[i].fontname = nil;
+		}
+		free(newpal);
+		newpal = nil;
+	}
+
+	/*
+	 * Ensure "base" exists at index 0: it seeds f->cols via frstylesync.
+	 * If "base" was not supplied first, find it and swap it to the front,
+	 * updating all run indices accordingly.  If it's absent entirely,
+	 * prepend a blank entry so index 0 always means "use frame defaults".
+	 */
+	if(w->nwpalette > 0){
+		int bidx = findpalette(w->wpalette, w->nwpalette, "base");
+		if(bidx < 0){
+			/* No "base" entry: prepend a blank one. */
+			w->wpalette = erealloc(w->wpalette,
+			    (w->nwpalette+1)*sizeof(WinStyleEntry));
+			memmove(&w->wpalette[1], &w->wpalette[0],
+			    w->nwpalette*sizeof(WinStyleEntry));
+			memset(&w->wpalette[0], 0, sizeof(WinStyleEntry));
+			w->wpalette[0].name = estrdup("base");
+			w->nwpalette++;
+			for(j = 0; j < w->nwruns; j++)
+				w->wruns[j].paletteidx++;
+		} else if(bidx > 0){
+			/* Swap "base" to index 0. */
+			WinStyleEntry tmp = w->wpalette[0];
+			w->wpalette[0]    = w->wpalette[bidx];
+			w->wpalette[bidx] = tmp;
+			for(j = 0; j < w->nwruns; j++){
+				if(w->wruns[j].paletteidx == 0)
+					w->wruns[j].paletteidx = bidx;
+				else if(w->wruns[j].paletteidx == bidx)
+					w->wruns[j].paletteidx = 0;
+			}
+		}
+	}
+
+	/* --- Resolve raw run names → palette indices --- */
+	WinStyleRun *newruns  = nil;
+	int          nnewruns = 0;
+	if(nrawruns > 0){
+		newruns = emalloc(nrawruns * sizeof(WinStyleRun));
+		for(i = 0; i < nrawruns; i++){
+			ulong abs_start = rawruns[i].start;
+			if(hasaddr)
+				abs_start += (ulong)addr.q0;
+			int idx = findpalette(w->wpalette, w->nwpalette, rawruns[i].name);
+			if(idx < 0) idx = 0;
+			newruns[nnewruns].start      = abs_start;
+			newruns[nnewruns].len        = rawruns[i].len;
+			newruns[nnewruns].paletteidx = idx;
+			nnewruns++;
+			free(rawruns[i].name);
+			rawruns[i].name = nil;
+		}
+	}
+	for(i = 0; i < nrawruns; i++) free(rawruns[i].name);
+	free(rawruns);
+
+	/* --- Apply runs --- */
+	if(!hasaddr){
+		/* Full replacement — wruns already cleared by winclearstyle above. */
+		w->wruns  = newruns;
+		w->nwruns = nnewruns;
+	} else {
+		/*
+		 * Partial: clip existing runs at [addr.q0, addr.q1) boundaries,
+		 * then merge in the new runs and re-sort by start.
+		 */
+		ulong q0 = (ulong)addr.q0, q1 = (ulong)addr.q1;
+		int   mout = w->nwruns * 2 + nnewruns + 4;
+		WinStyleRun *out = emalloc(mout * sizeof(WinStyleRun));
+		int nout = 0;
+
+		for(i = 0; i < w->nwruns; i++){
+			WinStyleRun *r = &w->wruns[i];
+			ulong rs = r->start, re = r->start + r->len;
+			/* left part: [rs, min(re, q0)) */
+			if(rs < q0){
+				ulong clip_e = re < q0 ? re : q0;
+				if(clip_e > rs){
+					out[nout].start      = rs;
+					out[nout].len        = clip_e - rs;
+					out[nout].paletteidx = r->paletteidx;
+					nout++;
+				}
+			}
+			/* right part: [max(rs, q1), re) */
+			if(re > q1){
+				ulong clip_s = rs > q1 ? rs : q1;
+				if(re > clip_s){
+					out[nout].start      = clip_s;
+					out[nout].len        = re - clip_s;
+					out[nout].paletteidx = r->paletteidx;
+					nout++;
+				}
+			}
+		}
+		/* append new runs */
+		for(i = 0; i < nnewruns; i++)
+			out[nout++] = newruns[i];
+		free(newruns);
+
+		/* insertion-sort by start (usually nearly sorted) */
+		for(i = 1; i < nout; i++){
+			WinStyleRun key = out[i];
+			j = i - 1;
+			while(j >= 0 && out[j].start > key.start){
+				out[j+1] = out[j];
+				j--;
+			}
+			out[j+1] = key;
+		}
+
+		free(w->wruns);
+		w->wruns  = out;
+		w->nwruns = nout;
+	}
 }
 
-
+/*
+ * xfidstyleflush — parse accumulated style content and apply, then repaint.
+ * Called from xfidclose when a QWstyle fid opened for write is clunked.
+ * The window lock is held by the caller.
+ */
+void
+xfidstyleflush(Window *w, char *buf, int nbuf, int hasaddr, Range addr)
+{
+	if(buf == nil || nbuf == 0){
+		if(!hasaddr){
+			winclearstyle(w);
+			winframesync(w);
+		}
+		return;
+	}
+	winparsestyle(w, buf, nbuf, hasaddr, addr);
+	winframesync(w);
+}

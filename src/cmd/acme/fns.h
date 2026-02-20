@@ -113,11 +113,11 @@ Range range(int, int);
 
 int	ismtpt(char*);
 
-/* style management */
-int		loadstylefile(char*);
+/* style management — per-window named palette (feature2) */
 void	winclearstyle(Window*);
 void	winframesync(Window*);
-void	xfidstyleflush(Window*, char*, int);
+void	winparsestyle(Window*, char*, int, int, Range);
+void	xfidstyleflush(Window*, char*, int, int, Range);
 char*	winstyleprint(Window*);
 void	winstyleinsert(Window*, uint, uint);
 void	winstyledelete(Window*, uint, uint);

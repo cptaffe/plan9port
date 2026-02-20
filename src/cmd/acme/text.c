@@ -78,7 +78,7 @@ textredraw(Text *t, Rectangle r, Font *f, Image *b, int odx)
 		 * content with plain colours.  frredraw inside winframesync
 		 * repaints everything with the correct style colours.
 		 */
-		if(t->what == Body && t->w != nil && t->w->nstyles > 0)
+		if(t->what == Body && t->w != nil && t->w->nwpalette > 0)
 			winframesync(t->w);
 	}
 }
@@ -416,7 +416,7 @@ textinsert(Text *t, uint q0, Rune *r, uint n, int tofile)
 		/* frinsert now owns frstyleinsert + frdrawrange internally */
 	}
 	/* keep file-absolute style layers in sync */
-	if(t->what == Body && t->w != nil && t->w->nstyles > 0)
+	if(t->what == Body && t->w != nil && t->w->nwruns > 0)
 		winstyleinsert(t->w, q0, n);
 	/* notify per-window edit log readers */
 	if(t->what == Body && t->w != nil)
@@ -527,7 +527,7 @@ textdelete(Text *t, uint q0, uint q1, int tofile)
 		textfill(t);
 	}
 	/* keep file-absolute style layers in sync */
-	if(t->what == Body && t->w != nil && t->w->nstyles > 0)
+	if(t->what == Body && t->w != nil && t->w->nwruns > 0)
 		winstyledelete(t->w, q0, q1);
 	/* notify per-window edit log readers */
 	if(t->what == Body && t->w != nil)
@@ -1750,7 +1750,7 @@ textsetorigin(Text *t, uint org, int exact)
 	if(fixup && t->fr.p1 > t->fr.p0)
 		frdrawsel(&t->fr, frptofchar(&t->fr, t->fr.p1-1), t->fr.p1-1, t->fr.p1, 1);
 	/* re-apply styles: t->org just changed so frame-relative offsets must be recomputed */
-	if(t->what == Body && t->w != nil && t->w->nstyles > 0)
+	if(t->what == Body && t->w != nil && t->w->nwpalette > 0)
 		winframesync(t->w);
 }
 

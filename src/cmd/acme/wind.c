@@ -330,7 +330,7 @@ winclose(Window *w)
 		free(w->incl);
 		free(w->evring.buf);
 		winlogfree(w);
-		free(w->styles);
+		winclearstyle(w);
 		free(w);
 	}
 }

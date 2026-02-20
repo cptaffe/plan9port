@@ -61,7 +61,7 @@ void
 threadmain(int argc, char *argv[])
 {
 	int i;
-	char *p, *loadfile, *stylefile;
+	char *p, *loadfile;
 	Column *c;
 	int ncol;
 	Display *d;
@@ -71,7 +71,6 @@ threadmain(int argc, char *argv[])
 	ncol = -1;
 
 	loadfile  = nil;
-	stylefile = nil;
 	ARGBEGIN{
 	case 'D':
 		{extern int _threaddebuglevel;
@@ -116,9 +115,7 @@ threadmain(int argc, char *argv[])
 		swapscrollbuttons = TRUE;
 		break;
 	case 's':
-		stylefile = ARGF();
-		if(stylefile == nil)
-			goto Usage;
+		ARGF();	/* -s stylefile: deprecated, ignored */
 		break;
 	case 'W':
 		winsize = ARGF();
@@ -187,8 +184,7 @@ threadmain(int argc, char *argv[])
 	fontcache[0] = &reffont;
 
 	iconinit();
-	if(stylefile != nil)
-		loadstylefile(stylefile);
+	/* per-window palettes replace the old global style file (-s) */
 	timerinit();
 	rxinit();
 
