@@ -10,7 +10,7 @@ enum
 {
 	STACK = 32768,
 	NHASH = 31,
-	MAXMSG = 64,	/* per connection */
+	MAXMSG = 1024,	/* per connection */
 	MAXMSGSIZE = 4*1024*1024
 };
 
