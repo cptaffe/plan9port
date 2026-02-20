@@ -2,6 +2,8 @@
 *.o
 *.orig
 LOCAL.config
+bin/
+feature*
 bin/"
 bin/""
 bin/9660srv
