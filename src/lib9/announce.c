@@ -92,7 +92,7 @@ p9announce(char *addr, char *dir)
 		return -1;
 	}
 	if(proto == SOCK_STREAM){
-		listen(s, 8);
+		listen(s, SOMAXCONN);
 		putfd(dir, s);
 	}
 	return s;
@@ -116,7 +116,7 @@ Unix:
 		return -1;
 	}
 Success:
-	listen(s, 8);
+	listen(s, SOMAXCONN);
 	putfd(dir, s);
 	return s;
 }
