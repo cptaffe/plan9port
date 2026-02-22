@@ -124,12 +124,17 @@ drawrange_impl(Frame *f, Point pt, ulong p0, ulong p1, int forcesel, int issel_f
 		 * Line-wrap fill: call _frcklinewrap only at the start of a box.
 		 * Mid-box style/selection boundaries never cause wrapping because
 		 * boxes are pre-split by bxscan to fit on a single line.
+		 *
+		 * The space to the right of a newline is empty — it contains no
+		 * content characters, so it must use the base window colours
+		 * regardless of what style the current span carries.
 		 */
 		if(p == bp){
 			qt = pt;
 			_frcklinewrap(f, &pt, b);
 			if(pt.y > qt.y)
-				draw(f->b, Rect(qt.x, qt.y, f->r.max.x, pt.y), back, nil, qt);
+				draw(f->b, Rect(qt.x, qt.y, f->r.max.x, pt.y),
+				     issel ? f->cols[HIGH] : f->cols[BACK], nil, qt);
 		}
 
 		/* Draw sub-span [p, next) of box bi. */
@@ -168,13 +173,14 @@ drawrange_impl(Frame *f, Point pt, ulong p0, ulong p1, int forcesel, int issel_f
 	/*
 	 * Trailing fill: if the last box drawn was a complete text box and the
 	 * NEXT box starts on a new line, fill the gap to the right margin.
-	 * Mirrors the identical check in the old frdrawsel0.
+	 * Same rule as the line-wrap fill above: empty space uses base colours.
 	 */
 	if(!trimmed && p > p0 && bi > 0 && bi < f->nbox && f->box[bi-1].nrune > 0){
 		qt = pt;
 		_frcklinewrap(f, &pt, &f->box[bi]);
 		if(pt.y > qt.y)
-			draw(f->b, Rect(qt.x, qt.y, f->r.max.x, pt.y), back, nil, qt);
+			draw(f->b, Rect(qt.x, qt.y, f->r.max.x, pt.y),
+			     issel ? f->cols[HIGH] : f->cols[BACK], nil, qt);
 	}
 
 	return pt;
