@@ -490,7 +490,7 @@ Keytab keytab[] = {
 	{Kcmd+'B', LLrefs},	/* %-shift-B: Lrefs */
 	{0x1B, LV}, /* Esc: V */
 	{Kcmd+'p', LSearch}, /* %P: Search */
-	{Kcmd+'h', LHighlight},   /* %H: Highlight (toggles) */
+	{Kcmd+'H', LHighlight},   /* %-shift-H: Highlight (toggles) */
 	{0, nil}
 };
 
