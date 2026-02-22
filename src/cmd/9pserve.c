@@ -898,12 +898,28 @@ inputthread(void *arg)
 		if(verbose > 2) fprint(2, "%T read %.*H\n", n, pkt);
 		tag = GBIT16(pkt+5);
 		if((m = msgget(tag)) == nil){
-			fprint(2, "%T unexpected 9P response tag %d\n", tag);
+			fprint(2, "%T unexpected 9P response type=%d tag=%d\n",
+				(int)pkt[4], tag);
 			free(pkt);
 			continue;
 		}
 		if((nn = convM2S(pkt, n, &m->rx)) != n){
 			fprint(2, "%T bad packet - convM2S %d but %d\n", nn, n);
+			free(pkt);
+			msgput(m);
+			continue;
+		}
+		/*
+		 * Validate response type.  flush(9p) requires the server not
+		 * to respond to a flushed request after sending Rflush.  If
+		 * the backing server is non-compliant (e.g. a goroutine races
+		 * past its flushed check), a deferred response may arrive
+		 * after its tag has been recycled.  Discard it here rather
+		 * than routing it to the new owner of the tag.
+		 */
+		if((int)pkt[4] != m->tx.type+1 && (int)pkt[4] != Rerror){
+			fprint(2, "%T unexpected 9P response type=%d tag=%d (expected %d); discarding\n",
+				(int)pkt[4], tag, m->tx.type+1);
 			free(pkt);
 			msgput(m);
 			continue;
