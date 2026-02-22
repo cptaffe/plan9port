@@ -466,7 +466,6 @@ static Rune LLrefs[] = { 'L', 'r', 'e', 'f', 's', 0 };
 static Rune LV[] = { 'V', 0 };
 static Rune LSearch[] = { 'S', 'e', 'a', 'r', 'c', 'h', 0};
 static Rune LHighlight[] = { 'H', 'i', 'g', 'h', 'l', 'i', 'g', 'h', 't', 0 };
-static Rune LUnhighlight[] = { 'U', 'n', 'h', 'i', 'g', 'h', 'l', 'i', 'g', 'h', 't', 0 };
 
 typedef struct Keytab Keytab;
 struct Keytab
@@ -491,8 +490,7 @@ Keytab keytab[] = {
 	{Kcmd+'B', LLrefs},	/* %-shift-B: Lrefs */
 	{0x1B, LV}, /* Esc: V */
 	{Kcmd+'p', LSearch}, /* %P: Search */
-	{Kcmd+'h', LHighlight},   /* %H: Highlight */
-	{Kcmd+'H', LUnhighlight}, /* %-shift-H: Unhighlight */
+	{Kcmd+'h', LHighlight},   /* %H: Highlight (toggles) */
 	{0, nil}
 };
 
