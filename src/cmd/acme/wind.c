@@ -33,6 +33,7 @@ wininit(Window *w, Window *clone, Rectangle r)
 		incref(&w->ref);
 	w->ctlfid = ~0;
 	w->utflastqid = -1;
+	w->wantseq = -1;
 	r1 = r;
 
 	w->tagtop = r;

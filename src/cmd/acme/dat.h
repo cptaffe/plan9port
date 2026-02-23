@@ -18,6 +18,7 @@ enum {
   QWerrors,
   QWevent,
   QWlog,
+  QWseq,
   QWstyle,
   QWrdsel,
   QWwrsel,
@@ -297,6 +298,8 @@ struct Window {
   int id;
   Range addr;
   int hasaddr;   /* 1 after a write to addr, cleared when style fid opens OWRITE */
+  int seq;       /* monotonic edit count; incremented on each body edit (winlogedit) */
+  int wantseq;   /* seq guard: -1=unset, else expected seq for guarded ops */
   Range limit;
   uchar nopen[QMAX];
   uchar nomark;
@@ -457,11 +460,14 @@ struct Fid {
   int nrpart;
   uchar rpart[UTFmax];
   vlong logoff; // for putlog
+  int logmismatch;   /* 1: next log read returns "seq mismatch" error */
 
   /* QWstyle write accumulation */
+  /* QWstyle addr/seq captured at open; cleared from window immediately */
   int   styleopen;     /* 1 if opened for OWRITE/ORDWR */
   int   stylehasaddr;  /* addr was non-zero when style file was opened */
   Range styleaddr;     /* addr captured at open time (for partial updates) */
+  int   stylehasseq;   /* wantseq was set when style file was opened */
   char *stylebuf;      /* accumulated write data */
   int   nstylebuf;     /* bytes used */
   int   mstylebuf;     /* bytes allocated */

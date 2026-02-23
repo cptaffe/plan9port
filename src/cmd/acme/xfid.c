@@ -155,16 +155,22 @@ xfidopen(Xfid *x)
 			break;
 		case QWstyle:
 			/*
-			 * Snapshot addr at open time so the partial-vs-full decision
-			 * is fixed for this fid's lifetime.  w->hasaddr is cleared at
-			 * clunk (after a successful flush) to match data's semantics:
-			 * addr is consumed only on a successful operation, not on open.
+			 * Snapshot addr and seq guard at open time.
+			 * Fail immediately if a seq guard is set but doesn't match —
+			 * same as data rejecting a mismatched write.
+			 * Both guards are consumed at clunk after a successful flush.
 			 */
 			if((x->fcall.mode & 3) == OWRITE ||
 			   (x->fcall.mode & 3) == ORDWR){
+				if(w->wantseq >= 0 && w->seq != w->wantseq){
+					winunlock(w);
+					respond(x, &fc, "seq mismatch");
+					return;
+				}
 				x->f->styleopen    = 1;
 				x->f->stylehasaddr = w->hasaddr;
 				x->f->styleaddr    = w->addr;
+				x->f->stylehasseq  = (w->wantseq >= 0);
 			}
 			break;
 		case QWrdsel:
@@ -347,12 +353,15 @@ xfidclose(Xfid *x)
 				               x->f->stylehasaddr, x->f->styleaddr);
 				if(x->f->stylehasaddr)
 					w->hasaddr = 0;
+				if(x->f->stylehasseq)
+					w->wantseq = -1;
 				free(x->f->stylebuf);
 				x->f->stylebuf     = nil;
 				x->f->nstylebuf    = 0;
 				x->f->mstylebuf    = 0;
 				x->f->styleopen    = 0;
 				x->f->stylehasaddr = 0;
+				x->f->stylehasseq  = 0;
 			}
 			break;
 		case QWrdsel:
@@ -423,6 +432,10 @@ xfidread(Xfid *x)
 	}
 	off = x->fcall.offset;
 	switch(q){
+	case QWseq:
+		sprint(buf, "%d\n", w->seq);
+		goto Readbuf;
+
 	case QWaddr:
 		textcommit(&w->body, TRUE);
 		clampaddr(w);
@@ -430,6 +443,10 @@ xfidread(Xfid *x)
 		goto Readbuf;
 
 	case QWbody:
+		if(w->wantseq >= 0 && w->seq != w->wantseq){
+			respond(x, &fc, "seq mismatch");
+			break;
+		}
 		xfidutfread(x, &w->body, w->body.file->b.nc, QWbody);
 		break;
 
@@ -462,6 +479,10 @@ xfidread(Xfid *x)
 
 	case QWstyle:
 	{
+		if(w->wantseq >= 0 && w->seq != w->wantseq){
+			respond(x, &fc, "seq mismatch");
+			break;
+		}
 		/* Return current body styles as "idx start end\n" text. */
 		char *b;
 		uint n;
@@ -480,6 +501,10 @@ xfidread(Xfid *x)
 	}
 
 	case QWdata:
+		if(w->wantseq >= 0 && w->seq != w->wantseq){
+			respond(x, &fc, "seq mismatch");
+			break;
+		}
 		/* BUG: what should happen if q1 > q0? */
 		if(w->addr.q0 > w->body.file->b.nc){
 			respond(x, &fc, Eaddr);
@@ -654,7 +679,25 @@ xfidwrite(Xfid *x)
 		xfidctlwrite(x, w);
 		break;
 
+	case QWseq:
+	{
+		char tmp[32];
+		int n = x->fcall.count;
+		if(n >= (int)sizeof tmp)
+			n = sizeof tmp - 1;
+		memmove(tmp, x->fcall.data, n);
+		tmp[n] = '\0';
+		w->wantseq = atoi(tmp);
+		fc.count = x->fcall.count;
+		respond(x, &fc, nil);
+		break;
+	}
+
 	case QWdata:
+		if(w->wantseq >= 0 && w->seq != w->wantseq){
+			respond(x, &fc, "seq mismatch");
+			break;
+		}
 		a = w->addr;
 		t = &w->body;
 		wincommit(w, t);
@@ -688,6 +731,7 @@ xfidwrite(Xfid *x)
 		free(r);
 		w->addr.q0 += nr;
 		w->addr.q1 = w->addr.q0;
+		w->wantseq = -1;
 		fc.count = x->fcall.count;
 		respond(x, &fc, nil);
 		break;

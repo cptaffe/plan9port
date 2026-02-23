@@ -211,6 +211,7 @@ void
 xfidwinlogopen(Xfid *x, Window *w)
 {
 	WinEditLog *l = &w->editlog;
+	int wantseq = w->wantseq;
 
 	qlock(&l->lk);
 	if(!l->closed){
@@ -219,7 +220,13 @@ xfidwinlogopen(Xfid *x, Window *w)
 			l->f = erealloc(l->f, l->mf * sizeof l->f[0]);
 		}
 		l->f[l->nf++] = x->f;
-		x->f->logoff = l->start + l->nev;
+		if(wantseq >= 0){
+			if((vlong)wantseq < l->start || wantseq > w->seq)
+				x->f->logmismatch = 1;
+			else
+				x->f->logoff = wantseq;
+		} else
+			x->f->logoff = l->start + l->nev;
 	}
 	qunlock(&l->lk);
 }
@@ -267,6 +274,13 @@ xfidwinlogread(Xfid *x, Window *w)
 	vlong min;
 
 	memset(&fc, 0, sizeof fc);
+
+	/* First read: error if seq guard was set but position was unavailable. */
+	if(x->f->logmismatch){
+		x->f->logmismatch = 0;
+		respond(x, &fc, "seq mismatch");
+		return;
+	}
 
 	/*
 	 * Release the window lock before any potentially blocking
@@ -403,6 +417,7 @@ winlogedit(Window *w, char op, ulong q0, ulong n)
 {
 	WinEditLog *l = &w->editlog;
 
+	w->seq++;
 	qlock(&l->lk);
 	if(l->nf == 0 || l->closed){
 		qunlock(&l->lk);
