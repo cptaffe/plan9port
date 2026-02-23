@@ -155,18 +155,16 @@ xfidopen(Xfid *x)
 			break;
 		case QWstyle:
 			/*
-			 * Capture addr at open time.  If addr is non-{0,0}, the
-			 * flush (at clunk) will do a partial update; otherwise it
-			 * replaces the entire palette and run list atomically.
-			 * Repaint is always deferred to clunk so the whole
-			 * open→write→close is one atomic visual update.
+			 * Snapshot addr at open time so the partial-vs-full decision
+			 * is fixed for this fid's lifetime.  w->hasaddr is cleared at
+			 * clunk (after a successful flush) to match data's semantics:
+			 * addr is consumed only on a successful operation, not on open.
 			 */
 			if((x->fcall.mode & 3) == OWRITE ||
 			   (x->fcall.mode & 3) == ORDWR){
 				x->f->styleopen    = 1;
 				x->f->stylehasaddr = w->hasaddr;
 				x->f->styleaddr    = w->addr;
-				w->hasaddr         = 0;
 			}
 			break;
 		case QWrdsel:
@@ -347,6 +345,8 @@ xfidclose(Xfid *x)
 			if(x->f->styleopen){
 				xfidstyleflush(w, x->f->stylebuf, x->f->nstylebuf,
 				               x->f->stylehasaddr, x->f->styleaddr);
+				if(x->f->stylehasaddr)
+					w->hasaddr = 0;
 				free(x->f->stylebuf);
 				x->f->stylebuf     = nil;
 				x->f->nstylebuf    = 0;
