@@ -715,6 +715,17 @@ get(Text *et, Text *t, Text *argt, int flag1, int _0, Rune *arg, int narg)
 		textscrdraw(u);
 	}
 	free(addr);
+	/*
+	 * textreset+textload bypass textinsert/textdelete, so winstyleinsert
+	 * and winstyledelete are never called.  The wruns offsets from before
+	 * the Get are now wrong for the new content.  Clear them immediately
+	 * and repaint so stale style spans are never visible on the new body.
+	 * The compositor only flushes to N/style when a layer is explicitly
+	 * written, so it will not re-populate wruns until a highlight tool
+	 * calls Apply with spans for the new content.
+	 */
+	winclearstyle(w);
+	winframesync(w);
 	xfidlog(w, "get");
 }
 
