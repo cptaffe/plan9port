@@ -475,22 +475,10 @@ struct Keytab
 };
 
 /* %X to command */
+/* Keytab is intentionally empty: hotkeys are handled externally by
+ * acme-hotkey + acme-hotkeys (cawk), which intercept keys via CGEventTap
+ * and dispatch them through the acme 9P interface. */
 Keytab keytab[] = {
-	{Kcmd+'s', LPut},	/* %S: Put */
-	{Kcmd+'S', LPutall},	/* %-shift-S: Putall */
-	/* %F: fullscreen */
-	{Kcmd+'F', LLook},	/* %-shift-F: Look */
-	{Kcmd+'w', LDel},	/* %W: Del */
-	{Kcmd+'W', LDelcol},	/* %-shift-W: Delcol */
-	{Kcmd+'n', LNew},	/* %N: New */
-	{Kcmd+'N', LNewcol},	/* %-shift-N: Newcol */
-	{Kcmd+';', LSpell},	/* %;: Spell */
-	{Kcmd+'t', Lwin},	/* %`: win */
-	{Kcmd+'b', LLdef},	/* %B: Ldef */
-	{Kcmd+'B', LLrefs},	/* %-shift-B: Lrefs */
-	{0x1B, LV}, /* Esc: V */
-	{Kcmd+'p', LSearch}, /* %P: Search */
-	{Kcmd+'H', LHighlight},   /* %-shift-H: Highlight (toggles) */
 	{0, nil}
 };
 
