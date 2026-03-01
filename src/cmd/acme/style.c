@@ -248,10 +248,7 @@ winframesync(Window *w)
 
 /*
  * winstyleinsert — adjust runs when n runes are inserted at q0.
- *
- * styleinherit=1: the run containing q0 (if any) is extended so inserted
- *                 text inherits the left neighbour's style.
- * styleinherit=0: the run is split; the inserted gap implicitly uses base.
+ * The run containing q0 is split; the inserted gap implicitly uses base.
  */
 void
 winstyleinsert(Window *w, uint q0, uint n)
@@ -267,30 +264,26 @@ winstyleinsert(Window *w, uint q0, uint n)
 		if((ulong)q0 < r->start){
 			r->start += n;
 		} else if((ulong)q0 < r->start + r->len){
-			/* q0 is inside this run */
-			if(w->styleinherit){
-				r->len += n;                    /* extend: keep same style */
+			/* q0 is inside this run: split it; the gap uses base */
+			ulong left  = (ulong)q0 - r->start;
+			ulong right = r->len - left;
+			int   idx   = r->paletteidx;
+			if(left == 0){
+				r->start += n;             /* gap before: just shift */
+			} else if(right == 0){
+				/* gap after: nothing to do */
 			} else {
-				ulong left  = (ulong)q0 - r->start;
-				ulong right = r->len - left;
-				int   idx   = r->paletteidx;
-				if(left == 0){
-					r->start += n;             /* gap before: just shift */
-				} else if(right == 0){
-					/* gap after: nothing to do */
-				} else {
-					/* real split: shrink left, insert right-part run */
-					r->len = left;
-					w->wruns = erealloc(w->wruns, (w->nwruns+1)*sizeof(WinStyleRun));
-					r = &w->wruns[i];          /* re-fetch after realloc */
-					memmove(&w->wruns[i+2], &w->wruns[i+1],
-					        (w->nwruns-i-1)*sizeof(WinStyleRun));
-					w->wruns[i+1].start      = (ulong)q0 + n;
-					w->wruns[i+1].len        = right;
-					w->wruns[i+1].paletteidx = idx;
-					w->nwruns++;
-					i++;                       /* skip newly inserted run */
-				}
+				/* real split: shrink left, insert right-part run */
+				r->len = left;
+				w->wruns = erealloc(w->wruns, (w->nwruns+1)*sizeof(WinStyleRun));
+				r = &w->wruns[i];          /* re-fetch after realloc */
+				memmove(&w->wruns[i+2], &w->wruns[i+1],
+				        (w->nwruns-i-1)*sizeof(WinStyleRun));
+				w->wruns[i+1].start      = (ulong)q0 + n;
+				w->wruns[i+1].len        = right;
+				w->wruns[i+1].paletteidx = idx;
+				w->nwruns++;
+				i++;                       /* skip newly inserted run */
 			}
 		}
 		/* q0 exactly at run end: the gap goes after; next run's start shifts */

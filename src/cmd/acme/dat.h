@@ -339,7 +339,7 @@ struct Window {
   int            nwpalette;
   WinStyleRun   *wruns;
   int            nwruns;
-  int            styleinherit; /* 1=inserted text inherits left-neighbour style */
+
   WinEditLog editlog; /* per-window body edit notification log */
 };
 

@@ -1021,20 +1021,6 @@ out:
 			w->noecho = FALSE;
 			m = 6;
 		}else
-		if(strncmp(p, "styleinherit ", 13) == 0){	/* style insert inheritance */
-			pp = p+13;
-			m = 13;
-			if(strncmp(pp, "on", 2) == 0){
-				w->styleinherit = 1;
-				m += 2;
-			} else if(strncmp(pp, "off", 3) == 0){
-				w->styleinherit = 0;
-				m += 3;
-			} else {
-				err = Ebadctl;
-				break;
-			}
-		}else
 		{
 			err = Ebadctl;
 			break;
