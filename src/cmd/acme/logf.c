@@ -245,6 +245,15 @@ xfidwinlogclose(Xfid *x, Window *w)
 		for(i = 0; i < l->nf; i++){
 			if(l->f[i] == x->f){
 				l->f[i] = l->f[--l->nf];
+				/*
+				 * Wake any read blocked on this fid so it can
+				 * detect the deregistration and return EOF
+				 * promptly, rather than hanging until the next
+				 * edit event or window close.
+				 */
+				if(l->r.l == nil)
+					l->r.l = &l->lk;
+				rwakeupall(&l->r);
 				break;
 			}
 		}
@@ -351,6 +360,19 @@ xfidwinlogread(Xfid *x, Window *w)
 	}
 
 	i = x->f->logoff - l->start;
+	if(i < 0 || i >= l->nev){
+		/*
+		 * Our position was GC'd out from under us: a concurrent
+		 * xfidwinlogclose deregistered this fid from l->f, the GC
+		 * advanced l->start past our logoff, and then we woke up.
+		 * Respond with EOF so the client knows to reopen.
+		 */
+		qunlock(&l->lk);
+		winlock(w, 'F');
+		winclose(w);
+		respond(x, &fc, nil);
+		return;
+	}
 	p = estrdup(l->ev[i]);
 	x->f->logoff++;
 
@@ -405,29 +427,53 @@ xfidwinlogflush(Xfid *x, Window *w)
  * winlogedit - append one line to the window's edit log.
  * Called from textinsert/textdelete (tofile=1, Body only).
  *
- *   op 'I': q0 n   -- n runes inserted at q0
- *   op 'D': q0 q1  -- runes [q0,q1) deleted
+ * Format matches the acme event file format (sans C1):
+ *
+ *   op 'I': I q0 q1 0 nr [text]\n
+ *     q0     = rune position of insertion
+ *     q1     = q0 + rune count
+ *     nr     = rune count included in text field (0 if omitted)
+ *     text   = nr runes as UTF-8, present only when nr > 0
+ *              (nr == 0 when the insertion is larger than EVENTSIZE)
+ *
+ *   op 'D': D q0 q1 0 0 \n
+ *     q0, q1 = [q0, q1) rune range deleted
  *
  * The window lock may or may not be held by the caller; this function
  * only takes l->lk, which is always acquired after the window lock
  * (never before), so there is no inversion.
+ *
+ * r/nr are the inserted runes (only used for op=='I').  Pass nil/0 for
+ * op=='D' (the deleted text is gone by call time).
  */
 void
-winlogedit(Window *w, char op, ulong q0, ulong n)
+winlogedit(Window *w, char op, ulong q0, ulong q1, Rune *r, int nr)
 {
 	WinEditLog *l = &w->editlog;
+	char *entry;
 
-	w->seq++;
 	qlock(&l->lk);
 	if(l->nf == 0 || l->closed){
 		qunlock(&l->lk);
 		return;
 	}
+	w->seq++;	/* only advance when a log entry is actually written */
 	if(l->nev >= l->mev){
 		l->mev = l->mev ? l->mev*2 : 8;
 		l->ev = erealloc(l->ev, l->mev * sizeof l->ev[0]);
 	}
-	l->ev[l->nev++] = smprint("%c %lud %lud\n", op, q0, n);
+	/*
+	 * Limit inline text to EVENTSIZE runes, matching the event-file convention.
+	 * Entries larger than EVENTSIZE would exceed the bufio read-buffer used by
+	 * the Go log reader (4096 bytes), causing the 9P server to send more bytes
+	 * than the client's Tread.count and corrupting the stream.  When text is
+	 * omitted (nr==0 in the log line), the Go client falls back to ReadBody.
+	 */
+	if(op == 'I' && nr > 0 && nr <= EVENTSIZE && r != nil)
+		entry = smprint("%c %lud %lud 0 %d %.*S\n", op, q0, q1, nr, nr, r);
+	else
+		entry = smprint("%c %lud %lud 0 0 \n", op, q0, q1);
+	l->ev[l->nev++] = entry;
 	if(l->r.l == nil)
 		l->r.l = &l->lk;
 	rwakeupall(&l->r);
