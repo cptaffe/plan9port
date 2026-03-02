@@ -115,10 +115,15 @@ drawrange_impl(Frame *f, Point pt, ulong p0, ulong p1, int forcesel, int issel_f
 		if(sel_next < next) next = sel_next;
 		if(p1       < next) next = p1;
 
-		/* Colours for this sub-span. */
+		/*
+		 * Colours for this sub-span.
+		 * Newline boxes paint the empty space to the right margin — that
+		 * space contains no content so it always uses base colours.
+		 */
+		Image **sc_eff = (b->nrune < 0) ? f->cols : sc;
 		issel = forcesel ? issel_forced : (p >= f->p0 && p < f->p1);
-		if(issel){ back = sc[HIGH]; text = sc[HTEXT]; }
-		else      { back = sc[BACK]; text = sc[TEXT];  }
+		if(issel){ back = sc_eff[HIGH]; text = sc_eff[HTEXT]; }
+		else      { back = sc_eff[BACK]; text = sc_eff[TEXT];  }
 
 		/*
 		 * Line-wrap fill: call _frcklinewrap only at the start of a box.
