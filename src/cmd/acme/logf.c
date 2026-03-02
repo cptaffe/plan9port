@@ -105,6 +105,17 @@ xfidlogread(Xfid *x)
 	}
 
 	i = x->f->logoff - eventlog.start;
+	if(i < 0 || i >= eventlog.nev){
+		/*
+		 * Our position was GC'd out from under us — the FID was
+		 * closed (xfidlogclose) while we were sleeping, removing it
+		 * from eventlog.f so the GC could advance eventlog.start past
+		 * x->f->logoff.  Return empty (EOF) so the client re-opens.
+		 */
+		qunlock(&eventlog.lk);
+		respond(x, &fc, nil);
+		return;
+	}
 	p = estrdup(eventlog.ev[i]);
 	x->f->logoff++;
 	qunlock(&eventlog.lk);
