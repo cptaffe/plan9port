@@ -505,7 +505,7 @@ void xfidwinlogopen(Xfid *, Window *);
 void xfidwinlogclose(Xfid *, Window *);
 void xfidwinlogread(Xfid *, Window *);
 void xfidwinlogflush(Xfid *, Window *);
-void winlogedit(Window *, char, ulong, ulong);
+void winlogedit(Window *, char, ulong, ulong, Rune *, int);
 void winlogfree(Window *);
 
 struct Reffont {
