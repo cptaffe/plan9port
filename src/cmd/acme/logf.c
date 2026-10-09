@@ -222,7 +222,7 @@ void
 xfidwinlogopen(Xfid *x, Window *w)
 {
 	WinEditLog *l = &w->editlog;
-	int wantseq = w->wantseq;
+	int wantseq = x->f->seq;	/* moved onto this fid by xfidopen */
 
 	qlock(&l->lk);
 	if(!l->closed){
