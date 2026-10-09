@@ -218,6 +218,7 @@ colcloseall(Column *c)
 	textclose(&c->tag);
 	for(i=0; i<c->nw; i++){
 		w = c->w[i];
+		windelete(w);
 		winclose(w);
 	}
 	c->nw = 0;

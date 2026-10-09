@@ -320,7 +320,6 @@ winclose(Window *w)
 	int i;
 
 	if(decref(&w->ref) == 0){
-		xfidlog(w, "del");
 		windirfree(w);
 		textclose(&w->tag);
 		textclose(&w->body);
@@ -360,6 +359,13 @@ windelete(Window *w)
 	 * w->body.file) eliminates the NULL-deref crash in winlock.
 	 */
 	winlogfree(w);
+
+	/*
+	 * Log the deletion now, not when the last reference is dropped in
+	 * winclose: tools that watch acme/log keep the window's files open
+	 * until they see "del", so waiting for the final close never logs it.
+	 */
+	xfidlog(w, "del");
 }
 
 void
