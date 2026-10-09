@@ -977,6 +977,11 @@ put(Text *et, Text *_0, Text *argt, int _1, int _2, Rune *arg, int narg)
 		warning(nil, "no file name\n");
 		return;
 	}
+	/*
+	 * Flush the typing cache: the ctl "put" path, unlike B2, does not
+	 * commit first, and trimspaces and putfile both work on f->b.
+	 */
+	wincommit(w, &w->body);
 	if(w->autoindent)
 		trimspaces(et);
 	namer = bytetorune(name, &nname);
