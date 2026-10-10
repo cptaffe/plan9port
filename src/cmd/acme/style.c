@@ -63,28 +63,16 @@ parsecolor(char *s, ulong *out)
 
 /*
  * parseproperty — parse one palette property token into an entry.
- * Handles: bold, italic, underline, font=<path>, fg=#rrggbb, bg=#rrggbb.
+ * Handles fg=#rrggbb and bg=#rrggbb; other tokens are ignored.
  */
 static void
 parseproperty(WinStyleEntry *e, char *tok)
 {
 	ulong v;
-	if(strcmp(tok, "bold") == 0)      { e->bold = 1; return; }
-	if(strcmp(tok, "italic") == 0)    { e->italic = 1; return; }
-	if(strcmp(tok, "underline") == 0) { e->underline = 1; return; }
-	if(strncmp(tok, "fg=", 3) == 0){
-		if(parsecolor(tok+3, &v)){ e->fg = v; e->has_fg = 1; }
-		return;
-	}
-	if(strncmp(tok, "bg=", 3) == 0){
-		if(parsecolor(tok+3, &v)){ e->bg = v; e->has_bg = 1; }
-		return;
-	}
-	if(strncmp(tok, "font=", 5) == 0){
-		free(e->fontname);
-		e->fontname = estrdup(tok+5);
-		return;
-	}
+	if(strncmp(tok, "fg=", 3) == 0 && parsecolor(tok+3, &v))
+		e->fg = v;
+	else if(strncmp(tok, "bg=", 3) == 0 && parsecolor(tok+3, &v))
+		e->bg = v;
 }
 
 /* freeentry — free owned fields of a WinStyleEntry. */
@@ -92,9 +80,7 @@ static void
 freeentry(WinStyleEntry *e)
 {
 	free(e->name);
-	free(e->fontname);
-	e->name    = nil;
-	e->fontname = nil;
+	e->name = nil;
 }
 
 /*
@@ -136,9 +122,9 @@ resolvecolors(Window *w, int idx, Frame *f, Image **back, Image **text)
 	WinStyleEntry *base = &w->wpalette[0];
 
 	/* BACK: entry.bg → base.bg → frame default */
-	if(e->has_bg)
+	if(e->bg != Nocolor)
 		*back = colorimage(e->bg);
-	else if(idx > 0 && base->has_bg)
+	else if(idx > 0 && base->bg != Nocolor)
 		*back = colorimage(base->bg);
 	else
 		*back = f->cols[BACK];
@@ -146,9 +132,9 @@ resolvecolors(Window *w, int idx, Frame *f, Image **back, Image **text)
 		*back = f->cols[BACK];
 
 	/* TEXT: entry.fg → base.fg → frame default */
-	if(e->has_fg)
+	if(e->fg != Nocolor)
 		*text = colorimage(e->fg);
-	else if(idx > 0 && base->has_fg)
+	else if(idx > 0 && base->fg != Nocolor)
 		*text = colorimage(base->fg);
 	else
 		*text = f->cols[TEXT];
@@ -368,17 +354,12 @@ winstyleprint(Window *w)
 		if(e->name == nil)
 			continue;
 		n = snprint(line, sizeof line, ":%s", e->name);
-		if(e->fontname)
-			n += snprint(line+n, sizeof line - n, " font=%s", e->fontname);
-		if(e->has_fg)
+		if(e->fg != Nocolor)
 			n += snprint(line+n, sizeof line - n,
 			             " fg=#%06lux", (e->fg >> 8) & 0xFFFFFFUL);
-		if(e->has_bg)
+		if(e->bg != Nocolor)
 			n += snprint(line+n, sizeof line - n,
 			             " bg=#%06lux", (e->bg >> 8) & 0xFFFFFFUL);
-		if(e->bold)      n += snprint(line+n, sizeof line - n, " bold");
-		if(e->italic)    n += snprint(line+n, sizeof line - n, " italic");
-		if(e->underline) n += snprint(line+n, sizeof line - n, " underline");
 		line[n++] = '\n';
 		while(nout + n + 1 > mout){ mout *= 2; out = erealloc(out, mout); }
 		memmove(out + nout, line, n);
@@ -540,8 +521,7 @@ winparsestyle(Window *w, char *buf, int nbuf, int hasaddr, Range addr)
 				    (w->nwpalette+1)*sizeof(WinStyleEntry));
 				w->wpalette[w->nwpalette++] = newpal[i];
 			}
-			newpal[i].name    = nil; /* ownership transferred */
-			newpal[i].fontname = nil;
+			newpal[i].name = nil; /* ownership transferred */
 		}
 		free(newpal);
 		newpal = nil;

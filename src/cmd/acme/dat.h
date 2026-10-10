@@ -262,14 +262,14 @@ struct WinEditLog {
 struct WinStyleEntry
 {
 	char  *name;       /* owned; "base" for index 0 */
-	char  *fontname;   /* owned font path, or nil */
-	ulong  fg, bg;     /* RGBA (0xRRGGBBFF); meaningful only if has_fg/has_bg */
-	uchar  has_fg;
-	uchar  has_bg;
-	uchar  bold;
-	uchar  italic;
-	uchar  underline;
+	ulong  fg, bg;     /* RGBA (0xRRGGBBFF), or Nocolor if unset */
 };
+
+/*
+ * Nocolor marks an unset fg or bg.  parsecolor always sets the alpha
+ * byte, so no parsed colour is 0, and a zeroed entry has neither set.
+ */
+enum { Nocolor = 0 };
 
 /*
  * WinStyleRun — one contiguous styled span in the body.
