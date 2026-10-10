@@ -1,6 +1,6 @@
 #include <lib9.h>
 
-void (*_sysfatal)(char*, ...);
+void (*_sysfatal)(char*, va_list);
 
 void
 sysfatal(char *fmt, ...)
