@@ -121,6 +121,7 @@ bin/mapd
 bin/mc
 bin/md5sum
 bin/mk
+bin/mk.wasm
 bin/mk9660
 bin/mkdir
 bin/mklatinkbd

@@ -1,0 +1,118 @@
+#!/bin/sh
+
+# build ../bin/mk.wasm with the wasi-sdk in $WASI_SDK_PATH
+# run this in the src directory
+set -e
+sdk=${WASI_SDK_PATH:-/opt/wasi-sdk}
+src=`pwd`
+cc="$sdk/bin/clang --target=wasm32-wasip1 -O2 -mllvm -wasm-enable-sjlj -D_WASI_EMULATED_GETPID -D_WASI_EMULATED_PROCESS_CLOCKS -Wno-parentheses -Wno-deprecated-pragma -I$src/../include"
+o=`mktemp -d`
+trap 'rm -rf "$o"' 0
+
+mkdir "$o/lib9" "$o/libbio" "$o/libregexp"
+cd "$o/lib9"
+$cc -c \
+	$src/lib9/atexit.c \
+	$src/lib9/atoi.c \
+	$src/lib9/atol.c \
+	$src/lib9/errstr.c \
+	$src/lib9/exitcode.c \
+	$src/lib9/fmtlock2.c \
+	$src/lib9/getenv.c \
+	$src/lib9/jmp.c \
+	$src/lib9/lock.c \
+	$src/lib9/malloc.c \
+	$src/lib9/open.c \
+	$src/lib9/strdup.c \
+	$src/lib9/strecpy.c \
+	$src/lib9/time.c \
+	$src/lib9/write.c \
+	$src/lib9/fmt/charstod.c \
+	$src/lib9/fmt/dofmt.c \
+	$src/lib9/fmt/fltfmt.c \
+	$src/lib9/fmt/fmt.c \
+	$src/lib9/fmt/fmtfd.c \
+	$src/lib9/fmt/fmtfdflush.c \
+	$src/lib9/fmt/fmtlocale.c \
+	$src/lib9/fmt/fmtvprint.c \
+	$src/lib9/fmt/fprint.c \
+	$src/lib9/fmt/nan64.c \
+	$src/lib9/fmt/pow10.c \
+	$src/lib9/fmt/snprint.c \
+	$src/lib9/fmt/sprint.c \
+	$src/lib9/fmt/strtod.c \
+	$src/lib9/fmt/vfprint.c \
+	$src/lib9/fmt/vseprint.c \
+	$src/lib9/fmt/vsnprint.c \
+	$src/lib9/utf/rune.c \
+	$src/lib9/utf/runestrchr.c \
+	$src/lib9/utf/utflen.c \
+	$src/lib9/utf/utfnlen.c \
+	$src/lib9/utf/utfrune.c
+cd "$o/libbio"
+$cc -c \
+	$src/libbio/bbuffered.c \
+	$src/libbio/bfildes.c \
+	$src/libbio/bflush.c \
+	$src/libbio/bgetc.c \
+	$src/libbio/bgetrune.c \
+	$src/libbio/bgetd.c \
+	$src/libbio/binit.c \
+	$src/libbio/boffset.c \
+	$src/libbio/bprint.c \
+	$src/libbio/bputc.c \
+	$src/libbio/bputrune.c \
+	$src/libbio/brdline.c \
+	$src/libbio/brdstr.c \
+	$src/libbio/bread.c \
+	$src/libbio/bseek.c \
+	$src/libbio/bvprint.c \
+	$src/libbio/bwrite.c
+cd "$o/libregexp"
+$cc -c \
+	$src/libregexp/regcomp.c \
+	$src/libregexp/regerror.c \
+	$src/libregexp/regexec.c \
+	$src/libregexp/regsub.c \
+	$src/libregexp/regaux.c \
+	$src/libregexp/rregexec.c \
+	$src/libregexp/rregsub.c
+cd "$o"
+for i in lib9 libbio libregexp
+do
+	"$sdk/bin/llvm-ar" rcs $i.a $i/*.o
+done
+
+cd "$src/cmd/mk"
+$cc -o ../../../bin/mk.wasm \
+	arc.c \
+	archive.c \
+	bufblock.c \
+	env.c \
+	file.c \
+	graph.c \
+	job.c \
+	lex.c \
+	main.c \
+	match.c \
+	mk.c \
+	parse.c \
+	recipe.c \
+	rc.c \
+	rule.c \
+	run.c \
+	sh.c \
+	shell.c \
+	shprint.c \
+	symtab.c \
+	var.c \
+	varsub.c \
+	word.c \
+	wasi.c \
+	../../lib9/main.c \
+	"$o/libbio.a" \
+	"$o/libregexp.a" \
+	"$o/lib9.a" \
+	-lsetjmp \
+	-lwasi-emulated-getpid \
+	-lwasi-emulated-process-clocks
