@@ -7,6 +7,8 @@
 #define NOPLAN9DEFINES
 #include <libc.h>
 
+static int omode[] = { O_RDONLY, O_WRONLY, O_RDWR, O_RDONLY };
+
 static struct {
 	Lock lk;
 	DIR **d;
@@ -95,7 +97,7 @@ p9create(char *path, int mode, ulong perm)
 			goto out;
 		fd = open(path, O_RDONLY);
 	}else{
-		umode = (mode&3)|O_CREAT|O_TRUNC;
+		umode = omode[mode&3]|O_CREAT|O_TRUNC;
 		mode &= ~(3|OTRUNC);
 		if(mode&ODIRECT){
 			umode |= O_DIRECT;
@@ -146,7 +148,7 @@ p9open(char *name, int mode)
 	DIR *d;
 
 	rdwr = mode&3;
-	umode = rdwr;
+	umode = omode[rdwr];
 	cexec = mode&OCEXEC;
 	rclose = mode&ORCLOSE;
 	lock = mode&OLOCK;
