@@ -111,13 +111,19 @@ struct word *enval(s)
 register char *s;
 {
 	register char *t, c;
-	register struct word *v;
-	for(t=s;*t && *t!=SEP;t++);
-	c=*t;
-	*t='\0';
-	v=newword(s, c=='\0'?(struct word *)0:enval(t+1));
-	*t=c;
-	return v;
+	struct word *v, **w;
+	w=&v;
+	for(;;){
+		for(t=s;*t && *t!=SEP;t++);
+		c=*t;
+		*t='\0';
+		*w=newword(s, (struct word *)0);
+		*t=c;
+		if(c=='\0')
+			return v;
+		w=&(*w)->next;
+		s=t+1;
+	}
 }
 void Vinit(void){
 	extern char **environ;
