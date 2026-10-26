@@ -45,6 +45,7 @@ Xasync(void)
 		Xerror("proc failed");
 		return;
 	}
+	addwaitpid(pid);
 
 	runq->pc++;
 	sprint(buf, "%d", pid);
@@ -82,6 +83,7 @@ Xbackq(void)
 		close(pfd[0]);
 		return;
 	}
+	addwaitpid(pid);
 
 	f = openfd(pfd[0]);
 	s = wd;
@@ -138,6 +140,7 @@ Xpipe(void)
 		close(pfd[0]);
 		return;
 	}
+	addwaitpid(pid);
 
 	start(p->code, pc+4, runq->local);
 	pushredir(ROPEN, pfd[0], rfd);
@@ -167,6 +170,7 @@ Xsubshell(void)
 		Xerror("proc failed");
 		return;
 	}
+	addwaitpid(pid);
 
 	Waitfor(pid, 1);
 	runq->pc++;
@@ -200,6 +204,7 @@ execforkexec(void)
 				strcat(file, argv[1]);
 				pid = ForkExecute(file, argv+1, mapfd(0), mapfd(1), mapfd(2));
 				if(pid >= 0){
+					addwaitpid(pid);
 					free(argv);
 					return pid;
 				}
