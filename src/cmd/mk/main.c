@@ -21,7 +21,7 @@ void badusage(void);
 short buf[10000];
 #endif
 
-int
+void
 main(int argc, char **argv)
 {
 	Word *w;
@@ -227,7 +227,6 @@ main(int argc, char **argv)
 	if(uflag)
 		prusage();
 	exits(0);
-	return 0;
 }
 
 void
