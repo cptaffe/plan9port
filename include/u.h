@@ -117,6 +117,10 @@ typedef long p9jmp_buf[sizeof(sigjmp_buf)/(sizeof(long))];
 #	undef _NEEDUSHORT
 #	undef _NEEDUINT
 #	undef _NEEDULONG
+#elif defined(__wasi__)
+#	include <pthread.h>
+#	define sigsetjmp(b, s)	_setjmp(b)
+#	define siglongjmp	_longjmp
 #else
 	/* No idea what system this is -- try some defaults */
 #	include <pthread.h>
