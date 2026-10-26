@@ -1,4 +1,5 @@
 #include <u.h>
+#include <sys/stat.h>
 #include <libc.h>
 
 int touch(int, char *);
@@ -46,6 +47,10 @@ touch(int nocreate, char *name)
 	Dir stbuff;
 	int fd;
 
+#ifdef UTIME_NOW
+	if(!tflag && utimensat(AT_FDCWD, name, nil, 0) >= 0)
+		return 0;
+#endif
 	nulldir(&stbuff);
 	stbuff.mtime = now;
 	if(dirwstat(name, &stbuff) >= 0)
