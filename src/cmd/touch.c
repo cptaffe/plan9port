@@ -1,5 +1,6 @@
 #include <u.h>
 #include <libc.h>
+#include <sys/time.h>
 
 int touch(int, char *);
 ulong now;
@@ -46,6 +47,13 @@ touch(int nocreate, char *name)
 	Dir stbuff;
 	int fd;
 
+	/*
+	 * p9web: with no -t, set the time to now at full precision, as the
+	 * UNIX touch does. Whole seconds made a file older than the file it was
+	 * touched after, and mk then rebuilt it.
+	 */
+	if(!tflag && access(name, 0) >= 0 && utimes(name, 0) >= 0)
+		return 0;
 	nulldir(&stbuff);
 	stbuff.mtime = now;
 	if(dirwstat(name, &stbuff) >= 0)

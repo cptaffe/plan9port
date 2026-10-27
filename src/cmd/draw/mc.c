@@ -8,10 +8,15 @@
  *
  */
 #include	<u.h>
+#ifndef __wasm__
 #include	<sys/ioctl.h>
 #include	<termios.h>
 #ifdef HAS_SYS_TERMIOS
 #include	<sys/termios.h>
+#endif
+#else
+/* p9web: no tty tells a width; Acme's window (by $winid) or $font does */
+struct winsize { int ws_col; int ws_xpixel; int ws_ypixel; };
 #endif
 #include	<libc.h>
 #include	<draw.h>
@@ -252,6 +257,10 @@ morechars(void)
 int
 windowrect(struct winsize *ws)
 {
+#ifdef __wasm__
+	USED(ws);
+	return -1;
+#else
 	int tty;
 
 	if((tty = open("/dev/tty", OWRITE)) < 0)
@@ -265,6 +274,7 @@ windowrect(struct winsize *ws)
 	if(tty != 1)
 		close(tty);
 	return 0;
+#endif
 }
 
 void
