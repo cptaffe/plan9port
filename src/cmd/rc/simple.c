@@ -61,6 +61,11 @@ Xsimple(void)
 			flush(err);
 			Updenv();	/* necessary so changes don't go out again */
 			if((pid = execforkexec()) < 0){
+				if(pid == -2){	/* no such program: it said so */
+					poplist();
+					setstatus("1");
+					return;
+				}
 				Xerror("try again");
 				return;
 			}

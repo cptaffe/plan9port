@@ -44,6 +44,7 @@ Xasync(void)
 		 * (via fd 1 or 2, for example) succeed even though
 		 * our pgrp is not the terminal's controlling pgrp.
 		 */
+#ifndef P9WEB	/* Plan 9 has no controlling tty */
 		if((tty = open("/dev/tty", OREAD)) >= 0){
 			/*
 			 * Should make reads of tty fail, writes succeed.
@@ -53,6 +54,7 @@ Xasync(void)
 			ioctl(tty, TIOCNOTTY);
 			close(tty);
 		}
+#endif
 		if(isatty(0))
 			pushredir(ROPEN, null, 0);
 		else
@@ -274,6 +276,7 @@ Xsubshell(void)
 	}
 }
 
+#ifndef P9WEB	/* p9web starts a command with spawn: p9webrc.c */
 int
 execforkexec(void)
 {
@@ -296,3 +299,4 @@ execforkexec(void)
 	addwaitpid(pid);
 	return pid;
 }
+#endif

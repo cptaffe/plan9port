@@ -206,6 +206,10 @@ execforkexec(void)
 			}
 		}
 	}
+	/* No program on the path: say so on the command's own fd 2, as the child of a
+	 * fork whose exec fails does (Execute), and let the caller fail the command. */
+	rerrstr(file, sizeof file);
+	fprint(mapfd(2), "%s: %s\n", argv[1], file);
 	free(argv);
-	return -1;
+	return -2;
 }

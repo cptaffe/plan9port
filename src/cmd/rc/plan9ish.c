@@ -107,17 +107,27 @@ execrfork(void)
 
 #define	SEP	'\1'
 char **environp;
+/* p9web: a loop, not one call per word: a list of 600 words overflowed WebKit's worker stack. */
 struct word *enval(s)
 register char *s;
 {
 	register char *t, c;
-	register struct word *v;
-	for(t=s;*t && *t!=SEP;t++);
-	c=*t;
-	*t='\0';
-	v=newword(s, c=='\0'?(struct word *)0:enval(t+1));
-	*t=c;
-	return v;
+	struct word *v, *head, **tail;
+	head = 0;
+	tail = &head;
+	for(;;){
+		for(t=s;*t && *t!=SEP;t++);
+		c=*t;
+		*t='\0';
+		v=newword(s, (struct word *)0);
+		*t=c;
+		*tail=v;
+		tail=&v->next;
+		if(c=='\0')
+			break;
+		s=t+1;
+	}
+	return head;
 }
 void Vinit(void){
 	extern char **environ;

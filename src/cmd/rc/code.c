@@ -483,7 +483,9 @@ codefree(code *cp)
 		|| p->f==Xrdwr
 		|| p->f==Xasync || p->f==Xbackq || p->f==Xcase || p->f==Xfalse
 		|| p->f==Xfor || p->f==Xjump
-		|| p->f==Xsubshell || p->f==Xtrue) p++;
+		|| p->f==Xsubshell || p->f==Xtrue
+		/* p9web: their jump operands are small ints, which can equal a wasm function index */
+		|| p->f==Xif || p->f==Xifnot) p++;
 		else if(p->f==Xdup || p->f==Xpipefd) p+=2;
 		else if(p->f==Xpipe) p+=4;
 		else if(p->f==Xword || p->f==Xdelhere) efree((++p)->s);

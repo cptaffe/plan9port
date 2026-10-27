@@ -185,7 +185,18 @@ main(int argc, char *argv[])
 		if(flag['r'])
 			pfnc(err, runq);
 		runq->pc++;
-		(*runq->code[runq->pc-1].f)();
+		{
+			/* direct calls for the ops that fork: rc is built with asyncify, which ignores
+			 * indirect calls, so a fork must not be under one (p9web, D93) */
+			void (*f)(void) = runq->code[runq->pc-1].f;
+			if(f == Xpipe) Xpipe();
+			else if(f == Xbackq) Xbackq();
+			else if(f == Xpipefd) Xpipefd();
+			else if(f == Xasync) Xasync();
+			else if(f == Xsubshell) Xsubshell();
+			else if(f == Xsimple) Xsimple();
+			else (*f)();
+		}
 		if(ntrap)
 			dotrap();
 	}

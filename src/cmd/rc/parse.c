@@ -1,6 +1,9 @@
 #include "rc.h"
 #include "io.h"
 #include "fns.h"
+/* p9web: wasi-libc setjmp (wasm exceptions), not lib9 sigsetjmp. */
+#undef setjmp
+#undef longjmp
 
 static tree*	body(int tok, int *ptok);
 static tree*	brace(int tok);
