@@ -8,7 +8,7 @@
 #include "exec.h"
 #include "io.h"
 #include "fns.h"
-#include "../p9web/p9web.h"
+#include "p9web.h"
 
 extern char **mkenv(void);
 extern void addwaitpid(int);
