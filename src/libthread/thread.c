@@ -88,7 +88,6 @@ _threadcreate(Proc *p, void (*fn)(void*), void *arg, uint stack)
 {
 	_Thread *t;
 
-	USED(stack);
 	t = malloc(sizeof *t);
 	if(t == nil)
 		sysfatal("threadcreate malloc: %r");
@@ -97,6 +96,7 @@ _threadcreate(Proc *p, void (*fn)(void*), void *arg, uint stack)
 	t->startfn = fn;
 	t->startarg = arg;
 	t->proc = p;
+	t->stksize = stack;	/* p9web: its fiber's stack (p9webthread.c) */
 	if(p->nthread != 0)
 		_threadpthreadstart(p, t);
 	else
@@ -333,9 +333,9 @@ pthreadscheduler(Proc *p)
 		/*
 		 * Avoid bugs with main pthread exiting.
 		 * When all procs are gone, threadexitsall above will happen.
+		 * p9web: no sleep call, which would take the slot the proc's other threads share.
 		 */
-		for(;;)
-			sleep(60*60*1000);
+		_threadpark();
 	}
 	_threadsetproc(nil);
 	free(self);
@@ -907,7 +907,7 @@ threadinfo(void *v, char *s)
 		return 0;
 
 	for(p=_threadprocs; p; p=p->next){
-		fprint(2, "proc %p %s%s\n", (void*)p->osprocid, p->msg,
+		fprint(2, "proc %d %s%s\n", p->osprocid, p->msg,
 			p->sysproc ? " (sysproc)": "");
 		for(t=p->allthreads.head; t; t=t->allnext){
 			fprint(2, "\tthread %d %s: %s %s\n",

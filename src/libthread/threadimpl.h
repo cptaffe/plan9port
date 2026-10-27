@@ -42,7 +42,7 @@ struct _Procrendez
 {
 	Lock		*l;
 	int		asleep;
-	pthread_cond_t	cond;
+	int		fiber;	/* p9web: the fiber asleep (p9webthread.c) */
 };
 
 struct _Thread
@@ -54,7 +54,7 @@ struct _Thread
 	void	(*startfn)(void*);
 	void	*startarg;
 	uint	id;
-	pthread_t	osprocid;
+	int	osprocid;	/* p9web: its fiber */
 	uchar	*stk;
 	uint	stksize;
 	int		exiting;
@@ -76,7 +76,7 @@ struct Proc
 	Proc		*next;
 	Proc		*prev;
 	char		msg[128];
-	pthread_t	osprocid;
+	int		osprocid;	/* p9web: its first fiber */
 	Lock		lock;
 	int			nswitch;
 	_Thread		*thread0;
@@ -116,6 +116,7 @@ extern int _runthreadspawn(int*, char*, char**, char*);
 extern void _threadsetupdaemonize(void);
 extern void _threaddodaemonize(char*);
 extern void _threadpexit(void);
+extern void _threadpark(void);
 extern void _threaddaemonize(void);
 extern void *_threadstkalloc(int);
 extern void _threadstkfree(void*, int);

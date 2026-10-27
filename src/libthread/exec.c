@@ -1,4 +1,5 @@
 #include "threadimpl.h"
+#include "p9web.h"
 
 static Lock thewaitlock;
 static Channel *thewaitchan;
@@ -57,53 +58,18 @@ threadwaitchan(void)
 	return thewaitchan;
 }
 
+/*
+ * p9web: the kernel's spawn (p9web.h), not fork and exec: the child has fd[0], fd[1] and fd[2] as
+ * 0, 1 and 2, and no other descriptor, in dir; cmd is looked for in $PATH, as execvp does.
+ */
 int
 _threadspawn(int fd[3], char *cmd, char *argv[], char *dir)
 {
-	int i, n, p[2], pid;
-	char exitstr[100];
+	int pid;
 
-	notifyoff("sys: child");	/* do not let child note kill us */
-	if(pipe(p) < 0)
+	pid = p9spawndir(cmd, argv, nil, dir, fd, 3, 0);
+	if(pid < 0)
 		return -1;
-	if(fcntl(p[0], F_SETFD, 1) < 0 || fcntl(p[1], F_SETFD, 1) < 0){
-		close(p[0]);
-		close(p[1]);
-		return -1;
-	}
-	switch(pid = fork()){
-	case -1:
-		close(p[0]);
-		close(p[1]);
-		return -1;
-	case 0:
-		/* can't RFNOTEG - will lose tty */
-		if(dir != nil )
-			chdir(dir); /* best effort */
-		dup2(fd[0], 0);
-		dup2(fd[1], 1);
-		dup2(fd[2], 2);
-		if(!isatty(0) && !isatty(1) && !isatty(2))
-			rfork(RFNOTEG);
-		for(i=3; i<100; i++)
-			if(i != p[1])
-				close(i);
-		execvp(cmd, argv);
-		fprint(p[1], "%d", errno);
-		close(p[1]);
-		_exit(0);
-	}
-
-	close(p[1]);
-	n = read(p[0], exitstr, sizeof exitstr-1);
-	close(p[0]);
-	if(n > 0){	/* exec failed */
-		free(waitfor(pid));
-		exitstr[n] = 0;
-		errno = atoi(exitstr);
-		return -1;
-	}
-
 	close(fd[0]);
 	if(fd[1] != fd[0])
 		close(fd[1]);
