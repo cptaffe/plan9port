@@ -1,0 +1,17 @@
+p9web: plan9port on plan9web's kernel (github.com/cptaffe/plan9web), a Plan 9 kernel that runs
+in WebAssembly, in a browser or in Node. The programs are wasm32-wasip1 modules (wasi-sdk), and
+their calls are the kernel's: WASI's, and p9web's own imports (module p9web, p9web.h).
+
+	p9web.h		the kernel's calls (the p9web imports)
+	p9web.c		lib9's system calls on them: spawn, wait, pipe, dup, mount, ...
+	note.c		Plan 9's notes, in place of lib9's notify.c (POSIX signals)
+	p9dir.c		Plan 9's open, create and stat records, for lib9's dirstat
+	lib9stub.c	what wasi-libc does not have
+	maini.c		main for a program whose p9main returns int (rc, mk)
+	mainv.c		main for a program whose p9main is void
+	include/	headers that WASI does not have; p9compat.h is included before each file
+
+The rest of the port is in each library, in the files and #ifdef __wasm__ parts that name p9web:
+lib9, libregexp, libthread (p9webthread.c: threads as the kernel's fibers), libdraw
+(p9webdraw.c: the kernel's /dev/draw), lib9p (p9webpost.c), lib9pclient (p9web.c), rc
+(p9webrc.c). plan9web's build.sh compiles them.
