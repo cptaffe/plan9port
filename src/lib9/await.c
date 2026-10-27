@@ -81,6 +81,29 @@ _p9strsig(char *s)
 	return 0;
 }
 
+#ifdef __wasm__
+#include <errno.h>
+#include "p9web.h"
+
+/* p9web: the kernel's wait record as it is (Plan 9's await), not a POSIX status made into one,
+ * which loses the message. A wait without blocking is not there yet. */
+static int
+_await(int pid4, char *str, int n, int opt)
+{
+	int r;
+
+	if(opt & WNOHANG){
+		werrstr("await: no wait without blocking");
+		return -1;
+	}
+	r = p9web_await(pid4 == -1 ? 0 : pid4, str, n);
+	if(r < 0){
+		errno = -r;
+		return -1;
+	}
+	return r;
+}
+#else
 static int
 _await(int pid4, char *str, int n, int opt)
 {
@@ -116,6 +139,7 @@ _await(int pid4, char *str, int n, int opt)
 		}
 	}
 }
+#endif
 
 int
 await(char *str, int n)

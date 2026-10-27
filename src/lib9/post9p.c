@@ -3,6 +3,39 @@
 
 int chattyfuse;
 
+#ifdef __wasm__
+/*
+ * p9web: Plan 9's post (srv(3)): fd goes into /srv/name, and is mounted on mtpt; the kernel's
+ * mount driver is the 9P client, and shares the session among the mounts, so there is no
+ * 9pserve.
+ */
+int
+post9pservice(int fd, char *name, char *mtpt)
+{
+	char buf[128];
+	int sfd;
+
+	if(name == nil && mtpt == nil){
+		close(fd);
+		werrstr("nothing to do");
+		return -1;
+	}
+	if(name){
+		snprint(buf, sizeof buf, "/srv/%s", name);
+		if((sfd = create(buf, OWRITE|ORCLOSE, 0600)) < 0)
+			return -1;
+		if(fprint(sfd, "%d", fd) < 0){
+			close(sfd);
+			return -1;
+		}
+		/* sfd stays open: ORCLOSE takes the entry out when the program ends */
+	}
+	if(mtpt && mount(fd, -1, mtpt, MREPL, "") < 0)
+		return -1;
+	close(fd);
+	return 0;
+}
+#else
 int
 post9pservice(int fd, char *name, char *mtpt)
 {
@@ -81,3 +114,4 @@ post9pservice(int fd, char *name, char *mtpt)
 	}
 	return 0;
 }
+#endif

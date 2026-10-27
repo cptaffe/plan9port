@@ -385,7 +385,9 @@ extern	int	exitcode(char*);
 extern	void	exits(char*);
 extern	double	p9frexp(double, int*);
 extern	ulong	getcallerpc(void*);
-#if defined(__GNUC__) || defined(__clang__) || defined(__IBMC__)
+#if defined(__wasm__)
+#define getcallerpc(x) 0	/* wasm has no return addresses to read */
+#elif defined(__GNUC__) || defined(__clang__) || defined(__IBMC__)
 #define getcallerpc(x) ((ulong)__builtin_return_address(0))
 #endif
 extern	char*	p9getenv(char*);
@@ -442,7 +444,7 @@ extern	void	(*_unpin)(void);
 #define	getwd		p9getwd
 #define	longjmp		p9longjmp
 #undef  setjmp
-#define setjmp		p9setjmp
+#define setjmp(b)	p9setjmp(b)	/* p9web: function-like, so p9setjmp's own setjmp is the C library's */
 #define putenv		p9putenv
 #define notejmp		p9notejmp
 #define jmp_buf		p9jmp_buf

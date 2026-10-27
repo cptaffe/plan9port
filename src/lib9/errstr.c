@@ -15,6 +15,23 @@ enum
 	EPLAN9 = 0x19283745
 };
 
+#ifdef __wasm__
+#include "p9web.h"
+
+/* p9web: the kernel's text for errno, if errno is the kernel's last error's: Plan 9's strings,
+ * not strerror's. */
+static int
+kernelerr(char *buf, uint n)
+{
+	int e;
+
+	e = p9web_errstr(buf, n);
+	return e != 0 && e == errno;
+}
+#else
+static int kernelerr(char *buf, uint n) { USED(buf); USED(n); return 0; }
+#endif
+
 char *(*_syserrstr)(void);
 static char xsyserr[ERRMAX];
 static char*
@@ -52,7 +69,7 @@ rerrstr(char *err, uint n)
 	syserr = getsyserr();
 	if(errno == EINTR)
 		strcpy(syserr, "interrupted");
-	else if(errno != EPLAN9)
+	else if(errno != EPLAN9 && !kernelerr(syserr, ERRMAX))
 		strcpy(syserr, strerror(errno));
 	strecpy(err, err+n, syserr);
 }
@@ -62,8 +79,12 @@ rerrstr(char *err, uint n)
 int
 __errfmt(Fmt *f)
 {
+	char buf[ERRMAX];
+
 	if(errno == EPLAN9)
 		return fmtstrcpy(f, getsyserr());
+	if(kernelerr(buf, sizeof buf))
+		return fmtstrcpy(f, buf);
 	return fmtstrcpy(f, strerror(errno));
 }
 

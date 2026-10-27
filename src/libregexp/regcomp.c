@@ -1,6 +1,8 @@
 #include "lib9.h"
 #include "regexp9.h"
 #include "regcomp.h"
+#undef setjmp
+#undef longjmp
 
 #define	TRUE	1
 #define	FALSE	0

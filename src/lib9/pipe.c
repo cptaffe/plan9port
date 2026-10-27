@@ -11,5 +11,9 @@
 int
 p9pipe(int fd[2])
 {
+#ifdef __wasm__
+	return pipe(fd);	/* p9web: the kernel's pipe, which is two-way */
+#else
 	return socketpair(AF_UNIX, SOCK_STREAM, 0, fd);
+#endif
 }
