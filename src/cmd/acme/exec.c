@@ -1874,7 +1874,7 @@ run(Window *win, char *s, Rune *rdir, int ndir, int newns, char *argaddr, char *
 	arg[7] = c;
 	arg[8] = cpid;
 	arg[9] = (void*)(uintptr)iseditcmd;
-	threadcreate(runproc, arg, STACK);
+	proccreate(runproc, arg, STACK);
 	/* mustn't block here because must be ready to answer mount() call in run() */
 	arg = emalloc(2*sizeof(void*));
 	arg[0] = c;
