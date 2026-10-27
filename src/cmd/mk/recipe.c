@@ -93,7 +93,7 @@ dorecipe(Node *node)
 				if(outofdate(n, a, 0)){
 					addw(&ln, a->n->name);
 					if(explain)
-						fprint(1, "%s(%ld) < %s(%ld)\n",
+						fprint(1, "%s(%lld) < %s(%lld)\n",
 							n->name, n->time, a->n->name, a->n->time);
 				}
 			} else {

@@ -88,7 +88,7 @@ typedef struct Arc
 typedef struct Node
 {
 	char		*name;
-	long		time;
+	vlong		time;
 	unsigned short	flags;
 	Arc		*prereqs;
 	struct Node	*next;		/* list for a rule */
@@ -132,7 +132,7 @@ typedef struct Symtab
 	char		*name;
 	union {
 		void	*ptr;
-		uintptr	value;
+		vlong	value;
 	} u;
 	struct Symtab	*next;
 } Symtab;

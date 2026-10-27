@@ -181,7 +181,7 @@ dumpn(char *s, Node *n)
 	Arc *a;
 
 	snprint(buf, sizeof buf, "%s   ", (*s == ' ')? s:"");
-	Bprint(&bout, "%s%s@%ld: time=%ld flags=0x%x next=%ld\n",
+	Bprint(&bout, "%s%s@%ld: time=%lld flags=0x%x next=%ld\n",
 		s, n->name, n, n->time, n->flags, n->next);
 	for(a = n->prereqs; a; a = a->next)
 		dumpa(buf, a);

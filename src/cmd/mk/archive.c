@@ -45,11 +45,11 @@ readn(int f, void *av, long n)
 	}
 	return t;
 }
-long
+vlong
 atimeof(int force, char *name)
 {
 	Symtab *sym;
-	long t;
+	vlong t;
 	char *archive, *member, buf[512];
 
 	archive = split(name, &member);
@@ -215,7 +215,7 @@ atimes(char *ar)
 		}
 		snprint(buf, sizeof buf, "%s(%s)", ar, name);
 		sym = symlook(strdup(buf), S_TIME, (void *)t);
-		sym->u.value = t;
+		sym->u.value = t*1000000000LL;
 	skip:
 		t = atol(h.size);
 		if(t&01) t++;

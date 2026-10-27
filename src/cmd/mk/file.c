@@ -2,17 +2,17 @@
 
 /* table-driven version in bootes dump of 12/31/96 */
 
-long
+vlong
 mtime(char *name)
 {
 	return mkmtime(name);
 }
 
-long
+vlong
 timeof(char *name, int force)
 {
 	Symtab *sym;
-	long t;
+	vlong t;
 
 	if(utfrune(name, '('))
 		return atimeof(force, name);	/* archive */
@@ -29,7 +29,7 @@ timeof(char *name, int force)
 	if(t == 0)
 		return 0;
 
-	symlook(name, S_TIME, (void*)t);		/* install time in cache */
+	symlook(name, S_TIME, "")->u.value = t;		/* install time in cache */
 	return t;
 }
 
@@ -61,12 +61,12 @@ delete(char *name)
 void
 timeinit(char *s)
 {
-	long t;
+	vlong t;
 	char *cp;
 	Rune r;
 	int c, n;
 
-	t = time(0);
+	t = nsec();
 	while (*s) {
 		cp = s;
 		do{
@@ -77,7 +77,7 @@ timeinit(char *s)
 		} while(*s);
 		c = *s;
 		*s = 0;
-		symlook(strdup(cp), S_TIME, (void *)t)->u.value = t;
+		symlook(strdup(cp), S_TIME, "")->u.value = t;
 		if (c)
 			*s++ = c;
 		while(*s){

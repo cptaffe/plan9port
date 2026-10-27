@@ -56,7 +56,6 @@ exportenv(Envy *e, Shell *sh)
 	int w, n;
 	char **p;
 	Envy *e1;
-	static char buf[16384];
 
 	n = 0;
 	for(e1 = e; e1->name; e1++)
@@ -67,10 +66,9 @@ exportenv(Envy *e, Shell *sh)
 		if(sh == &rcshell && (e->values == 0 || e->values->s == 0 || e->values->s[0] == 0))
 			continue; /* do not write empty string for empty list */
 		if(e->values)
-			snprint(buf, sizeof buf, "%s=%s", e->name,  wtos(e->values, sh->iws));
+			p[w++] = smprint("%s=%s", e->name, wtos(e->values, sh->iws));
 		else
-			snprint(buf, sizeof buf, "%s=", e->name);
-		p[w++] = strdup(buf);
+			p[w++] = smprint("%s=", e->name);
 	}
 	p[w] = 0;
 	environ = p;
@@ -335,7 +333,7 @@ rcopy(char **to, Resub *match, int n)
 	}
 }
 
-unsigned long
+vlong
 mkmtime(char *name)
 {
 	struct stat st;
@@ -343,5 +341,11 @@ mkmtime(char *name)
 	if(stat(name, &st) < 0)
 		return 0;
 
-	return st.st_mtime;
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
+	return st.st_mtimespec.tv_sec*1000000000LL + st.st_mtimespec.tv_nsec;
+#elif defined(__linux__) || defined(__sun__)
+	return st.st_mtim.tv_sec*1000000000LL + st.st_mtim.tv_nsec;
+#else
+	return st.st_mtime*1000000000LL;
+#endif
 }
