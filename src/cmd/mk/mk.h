@@ -92,6 +92,11 @@ typedef struct Node
 	unsigned short	flags;
 	Arc		*prereqs;
 	struct Node	*next;		/* list for a rule */
+	int		pass;		/* the last pass of work that looked at its prerequisites */
+	int		cleared;	/* the last target whose clrmade reset it */
+	int		cycled;		/* the last graph cyclechk searched it to the end in */
+	int		checked;	/* the last graph ambiguous checked it in */
+	int		attributed;	/* the last graph attribute set its flags in */
 } Node;
 
 	/* Node.flags */
