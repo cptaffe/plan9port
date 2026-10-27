@@ -3,6 +3,8 @@
 #include <draw.h>
 #include <mouse.h>
 
+int _displayscreen(Display*, char*, int);	/* p9webdraw.c */
+
 Display	*display;
 Font	*font;
 Image	*screen;
@@ -137,6 +139,14 @@ getimage0(Display *d, Image *image)
 		memset(image, 0, sizeof(Image));
 	}
 
+#ifdef __wasm__
+	/* p9web: 9front's devdraw has no J or I: the screen is image 0 (p9webdraw.c). */
+	USED(n);
+	if(_displayscreen(d, info, image != nil) < 0){
+		fprint(2, "cannot read screen info: %r\n");
+		return nil;
+	}
+#else
 	a = bufimage(d, 2);
 	a[0] = 'J';
 	a[1] = 'I';
@@ -150,6 +160,7 @@ getimage0(Display *d, Image *image)
 		fprint(2, "short screen info\n");
 		return nil;
 	}
+#endif
 
 	if(image == nil){
 		image = mallocz(sizeof(Image), 1);

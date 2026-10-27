@@ -61,6 +61,13 @@ defaultpipe(void)
 	// so feed the pipe it the "right" way with a subprocess.
 	if(pipe(p) < 0)
 		return -1;
+#ifdef __wasm__
+	/* p9web: no fork; the kernel's pipe holds 256 KB, and defontdata is under 5 KB. */
+	USED(pid);
+	write(p[1], defontdata, sizeof defontdata);
+	close(p[1]);
+	return p[0];
+#endif
 	if((pid = fork()) < 0) {
 		close(p[0]);
 		close(p[1]);

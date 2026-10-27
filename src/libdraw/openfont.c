@@ -271,6 +271,12 @@ _fontpipe(char *name)
 	char buf[1024], *argv[10];
 	int nbuf, pid;
 
+#ifdef __wasm__
+	/* p9web: /mnt/font is fontsrv's files (over httpfs), not a fontsrv started here. */
+	USED(p); USED(c); USED(buf); USED(argv); USED(nbuf); USED(pid);
+	werrstr("no font %s in /mnt/font", name);
+	return -1;
+#endif
 	if(pipe(p) < 0)
 		return -1;
 	pid = rfork(RFNOWAIT|RFFDG|RFPROC);
